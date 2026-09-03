@@ -32,6 +32,8 @@ pub struct ChannelState {
     additional_features: HashSet<FeatureFlag>,
 
     config: ChannelConfig,
+
+    self_hosted: bool,
 }
 
 impl ChannelState {
@@ -51,6 +53,7 @@ impl ChannelState {
                 crash_reporting_config: None,
                 mcp_static_config: None,
             },
+            self_hosted: false,
         }
     }
 
@@ -69,6 +72,7 @@ impl ChannelState {
             channel,
             additional_features: Default::default(),
             config,
+            self_hosted: false,
         }
     }
 
@@ -113,6 +117,55 @@ impl ChannelState {
             .config
             .server_config
             .session_sharing_server_url = Some(url);
+        Ok(())
+    }
+
+    /// Returns whether the app is running in self-hosted mode (all Warp-server
+    /// traffic redirected to a user-operated server).
+    pub fn is_self_hosted() -> bool {
+        CHANNEL_STATE.lock().self_hosted
+    }
+
+    /// Redirects every Warp-operated service to a server the user operates.
+    ///
+    /// The RTC (WebSocket) and session-sharing URLs are derived from
+    /// `server_root_url`, and the Oz dashboard root is pointed at it as well.
+    /// Telemetry, crash reporting, and autoupdate are disabled outright so
+    /// nothing reaches Warp-operated endpoints. Cloud features the self-hosted
+    /// server does not implement fail locally instead of falling back to Warp.
+    pub fn enable_self_hosted(server_root_url: String) -> anyhow::Result<()> {
+        use anyhow::Context as _;
+
+        let root = Url::parse(&server_root_url)?;
+        let ws_scheme = match root.scheme() {
+            "https" => "wss",
+            "http" => "ws",
+            other => anyhow::bail!("self-hosted server URL must use http(s), got '{other}'"),
+        };
+        let host = root.host_str().context("server URL has no host")?;
+        let ws_origin = match root.port_or_known_default() {
+            Some(port) => format!("{ws_scheme}://{host}:{port}"),
+            None => format!("{ws_scheme}://{host}"),
+        };
+
+        let state = &mut *CHANNEL_STATE.lock();
+        state.self_hosted = true;
+        state.config.server_config = WarpServerConfig {
+            // Store the raw input (like `override_server_root_url` does) so
+            // string concatenations onto the root don't grow double slashes.
+            server_root_url: server_root_url.clone().into(),
+            rtc_server_url: format!("{ws_origin}/graphql/v2").into(),
+            session_sharing_server_url: Some(ws_origin.clone().into()),
+            firebase_auth_api_key: String::new().into(),
+            iap_config: None,
+        };
+        state.config.oz_config = OzConfig {
+            oz_root_url: server_root_url.clone().into(),
+            workload_audience_url: None,
+        };
+        state.config.telemetry_config = None;
+        state.config.crash_reporting_config = None;
+        state.config.autoupdate_config = None;
         Ok(())
     }
 

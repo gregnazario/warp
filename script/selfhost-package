@@ -1,0 +1,155 @@
+#!/bin/bash
+# Packages PARW: a self-contained, Warp-infrastructure-free build for macOS:
+#
+#   dist/PARW-macos-arm64/
+#     PARW.app                      GUI, launches pointed at the local backend
+#     bin/selfhost_server           agent backend binary
+#     bin/warp-tui-oss              TUI front-end
+#     Start PARW.command            double-click: starts backend + opens GUI
+#     README.txt                    setup instructions
+#
+# and zips it to dist/PARW-macos-arm64.zip. Builds release binaries
+# first unless SKIP_BUILD=1 is exported.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+cd "$REPO_ROOT"
+
+ARCH="$(uname -m)"
+STAGE_ROOT="dist/PARW-macos-${ARCH}"
+APP="$STAGE_ROOT/PARW.app"
+PLIST="$APP/Contents/Info.plist"
+MACOS_DIR="$APP/Contents/MacOS"
+RESOURCES_DIR="$APP/Contents/Resources"
+ICON_SRC="app/channels/oss/icon/no-padding/512x512.png"
+
+if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+    cargo build --release -p warp --bin warp-oss
+    cargo build --release -p warp_tui --bin warp-tui-oss
+    cargo build --release -p selfhost_server
+fi
+
+rm -rf "$STAGE_ROOT" "$STAGE_ROOT.zip"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$STAGE_ROOT/bin"
+
+# ── GUI .app ────────────────────────────────────────────────────────────────
+cp target/release/warp-oss "$MACOS_DIR/warp-oss"
+
+if [[ -f "$ICON_SRC" ]]; then
+    if ICONSET="$STAGE_ROOT/icon.iconset"; mkdir -p "$ICONSET"; then
+        sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png" >/dev/null 2>&1 || true
+        if iconutil -c icns "$ICONSET" -o "$RESOURCES_DIR/icon.icns" 2>/dev/null; then
+            ICON_KEY='<key>CFBundleIconFile</key><string>icon.icns</string>'
+        fi
+        rm -rf "$ICONSET"
+    fi
+fi
+
+cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleExecutable</key><string>warp-oss</string>
+    <key>CFBundleIdentifier</key><string>dev.warp.WarpOss</string>
+    <key>CFBundleName</key><string>PARW</string>
+    <key>CFBundleDisplayName</key><string>PARW</string>
+    <key>CFBundleShortVersionString</key><string>selfhost</string>
+    <key>CFBundleVersion</key><string>0.1.0</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>LSMinimumSystemVersion</key><string>11.0</string>
+    ${ICON_KEY:-}
+    <key>LSEnvironment</key>
+    <dict>
+        <key>WARP_SELF_HOSTED_SERVER_URL</key>
+        <string>http://127.0.0.1:8080</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+
+if [[ -d app/assets/onboarding ]]; then
+    mkdir -p "$RESOURCES_DIR/assets"
+    cp -R app/assets/onboarding "$RESOURCES_DIR/assets/"
+fi
+
+# ── Backend + TUI + launcher ────────────────────────────────────────────────
+cp target/release/selfhost_server "$STAGE_ROOT/bin/selfhost_server"
+cp target/release/warp-tui-oss "$STAGE_ROOT/bin/warp-tui-oss"
+
+cat > "$STAGE_ROOT/Start PARW.command" <<'LAUNCHER'
+#!/bin/bash
+cd "$(dirname "$0")"
+LOG="${HOME}/Library/Logs/selfhost-server.log"
+if ! curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+    echo "Starting the PARW agent backend (log: $LOG)..."
+    nohup ./bin/selfhost_server --bind 127.0.0.1:8080 >>"$LOG" 2>&1 &
+    for _ in $(seq 1 50); do
+        curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
+        sleep 0.2
+    done
+fi
+open "PARW.app"
+LAUNCHER
+chmod +x "$STAGE_ROOT/Start PARW.command"
+
+cat > "$STAGE_ROOT/README.txt" <<'README'
+PARW — self-hosted build
+========================
+
+Everything here talks only to your machine: the agent backend (this folder's
+bin/selfhost_server) and whatever LLM endpoint you point it at. No Warp cloud
+services, no telemetry, no crash reporting, no autoupdate.
+
+Quick start (macOS, Apple Silicon):
+  1. Move this folder anywhere (e.g. /Applications or your home dir).
+  2. Because the build is unsigned, clear the quarantine flag after transfer:
+         xattr -cr "PARW.app" .
+  3. Double-click "Start PARW.command". It starts the backend and
+     opens Warp. Type a prompt prefixed with "#" to use the agent.
+
+LLM backends (autodetected in order):
+  - Ollama     http://127.0.0.1:11434
+  - LM Studio  http://127.0.0.1:1234
+  - MLX-LM     http://127.0.0.1:8080
+Detected models appear in Warp's model picker. Force one with
+  ./bin/selfhost_server --llm-backend ollama
+or point at any OpenAI-compatible endpoint with --llm-base-url.
+
+Cloud providers (optional):
+  --provider chatgpt         first run --codex-login to sign in with ChatGPT
+  --provider azure-foundry   --azure-tenant/--azure-client-id/--azure-client-secret/--azure-foundry-url
+  --provider vertex --vertex gcloud auth application-default login
+  --provider zai|opencode|xai|openai|anthropic|google|openrouter  with --<name>-api-key
+
+Also in this folder:
+  bin/warp-tui-oss     terminal UI (same self-hosted env var)
+  The backend serves /healthz and /metrics on 127.0.0.1:8080.
+
+Notes:
+  - The backend listens on loopback only. If you expose it to your network,
+    require a key: --api-key <secret>, and set the same value in Warp via
+    WARP_API_KEY.
+  - Client auth for the server: any key is accepted by default; the Warp
+    client self-registers with a placeholder key.
+  - Voice transcription and web search are available if you run an STT
+    endpoint (--transcribe-base-url) or SearXNG (--web-search-url).
+README
+
+# ── Sign + zip ──────────────────────────────────────────────────────────────
+codesign --force --deep -s - "$APP" 2>/dev/null || true
+codesign --force -s - "$STAGE_ROOT/bin/selfhost_server" 2>/dev/null || true
+codesign --force -s - "$STAGE_ROOT/bin/warp-tui-oss" 2>/dev/null || true
+
+(cd dist && zip -qr "PARW-macos-${ARCH}.zip" "PARW-macos-${ARCH}")
+
+# Drag-to-install disk image.
+hdiutil create -volname PARW -srcfolder "$STAGE_ROOT" -ov -format UDZO \
+    "dist/PARW-macos-${ARCH}.dmg" >/dev/null
+
+echo
+echo "Packaged: dist/PARW-macos-${ARCH}.zip"
+echo "DMG:      dist/PARW-macos-${ARCH}.dmg"
+echo "Folder:   $STAGE_ROOT"

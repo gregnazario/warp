@@ -1,0 +1,75 @@
+#!/bin/bash
+# Builds and runs the fully self-hosted Warp stack: the agent backend
+# (autodetecting Ollama / LM Studio / MLX-LM) plus the Warp client pointed at
+# it, with telemetry, crash reporting, and autoupdate disabled.
+#
+# Usage:
+#   script/selfhost-up            build + start backend + launch the GUI
+#   script/selfhost-up --tui      launch the TUI instead of the GUI
+#   script/selfhost-up --stop     stop the backend
+#   script/selfhost-up --skip-build
+#
+# Extra environment (all optional):
+#   SELFHOST_BIND            server bind address   (default 127.0.0.1:8080)
+#   SELFHOST_LLM_API_KEY     key for the LLM endpoint
+#   SELFHOST_LOG_DIR         where backend logs go (default target/selfhost)
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+cd "$REPO_ROOT"
+
+BIND="${SELFHOST_BIND:-127.0.0.1:8080}"
+HOST_PORT="${BIND##*:}"
+LOG_DIR="${SELFHOST_LOG_DIR:-target/selfhost}"
+GUI_BIN="target/debug/warp-oss"
+TUI_BIN="target/debug/warp-tui-oss"
+SERVER_BIN="target/debug/selfhost_server"
+
+if [[ "${1:-}" == "--stop" ]]; then
+    pkill -f "$SERVER_BIN" 2>/dev/null || true
+    echo "self-hosted backend stopped."
+    exit 0
+fi
+
+SKIP_BUILD=false
+FRONTEND="gui"
+for arg in "$@"; do
+    case "$arg" in
+        --skip-build) SKIP_BUILD=true ;;
+        --tui) FRONTEND="tui" ;;
+        *) echo "unknown argument: $arg" >&2; exit 2 ;;
+    esac
+done
+
+if ! $SKIP_BUILD; then
+    if [[ "$FRONTEND" == "tui" ]]; then
+        cargo build -p selfhost_server -p warp_tui --bin warp-tui-oss
+    else
+        cargo build -p selfhost_server -p warp --bin warp-oss
+    fi
+fi
+
+mkdir -p "$LOG_DIR"
+
+if lsof -iTCP:"$HOST_PORT" -sTCP:LISTEN -n -P >/dev/null 2>&1; then
+    echo "Reusing backend already listening on $BIND."
+else
+    echo "Starting self-hosted backend on $BIND (logs: $LOG_DIR/server.log)..."
+    nohup "$SERVER_BIN" --bind "$BIND" "$@" >"$LOG_DIR/server.log" 2>&1 &
+    for _ in $(seq 1 50); do
+        if curl -sf "http://127.0.0.1:$HOST_PORT/healthz" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.2
+    done
+fi
+
+export WARP_SELF_HOSTED_SERVER_URL="http://127.0.0.1:$HOST_PORT"
+
+echo "Launching Warp (self-hosted: $WARP_SELF_HOSTED_SERVER_URL)..."
+if [[ "$FRONTEND" == "tui" ]]; then
+    exec "$TUI_BIN"
+else
+    exec "$GUI_BIN"
+fi

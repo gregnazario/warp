@@ -52,6 +52,9 @@ pub const WARP_HARNESS_ENV: &str = "WARP_HARNESS";
 pub const SERVER_ROOT_URL_OVERRIDE_ENV: &str = "WARP_SERVER_ROOT_URL";
 pub const WS_SERVER_URL_OVERRIDE_ENV: &str = "WARP_WS_SERVER_URL";
 pub const SESSION_SHARING_SERVER_URL_OVERRIDE_ENV: &str = "WARP_SESSION_SHARING_SERVER_URL";
+/// Redirects every Warp-operated service to a user-operated server (self-hosted
+/// mode), on any channel. See `ChannelState::enable_self_hosted`.
+pub const SELF_HOSTED_SERVER_URL_ENV: &str = "WARP_SELF_HOSTED_SERVER_URL";
 
 /// Options related to the parent process that spawned this Warp instance.
 #[derive(Debug, Default, Clone, clap::Args)]

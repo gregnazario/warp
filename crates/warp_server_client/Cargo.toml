@@ -64,7 +64,10 @@ tempfile.workspace = true
 websocket.workspace = true
 
 [dev-dependencies]
+axum.workspace = true
 mockall.workspace = true
+selfhost_server.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
 mockito.workspace = true
 warp_core = { workspace = true, features = ["test-util"] }
 warp_server_auth = { workspace = true, features = ["test-util"] }

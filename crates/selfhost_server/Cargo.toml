@@ -1,0 +1,32 @@
+[package]
+name = "selfhost_server"
+edition = "2024"
+description = "Self-hosted agent backend: serves Warp's /ai/multi-agent contract against an OpenAI- or Anthropic-compatible LLM endpoint"
+authors.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-stream.workspace = true
+axum = { workspace = true, features = ["ws"] }
+base64.workspace = true
+clap = { workspace = true, features = ["derive", "env"] }
+futures.workspace = true
+instant.workspace = true
+sha2.workspace = true
+command.workspace = true
+futures-util = { workspace = true, features = ["std"] }
+prost.workspace = true
+prost-types.workspace = true
+reqwest = { workspace = true, features = ["json", "stream"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+uuid.workspace = true
+warp_multi_agent_api.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

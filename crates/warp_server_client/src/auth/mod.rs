@@ -551,3 +551,7 @@ pub enum MintCustomTokenError {
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "get_user_decode_tests.rs"]
+mod get_user_decode_tests;

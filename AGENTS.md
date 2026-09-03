@@ -24,6 +24,30 @@ Environment variables:
 - `SERVER_ROOT_URL` - HTTP endpoint (default: `http://localhost:8080`)
 - `WS_SERVER_URL` - WebSocket endpoint (default: `ws://localhost:8080/graphql/v2`)
 
+### Running fully self-hosted
+`crates/selfhost_server` implements the Warp server surface Agent Mode needs,
+translating agent traffic to an OpenAI- or Anthropic-compatible LLM endpoint.
+Combined with the client-side self-hosted mode it keeps all agent calls on a
+server you run (or entirely on one machine, with a local LLM):
+
+```bash
+# Terminal 1: the self-hosted agent backend (defaults to a local Ollama)
+cargo run -p selfhost_server
+
+# Terminal 2: Warp with every Warp-operated service redirected to it
+WARP_SELF_HOSTED_SERVER_URL=http://127.0.0.1:8080 cargo run
+```
+
+`WARP_SELF_HOSTED_SERVER_URL` is honored on every channel and disables
+telemetry, crash reporting, and autoupdate. `WARP_API_KEY` supplies the
+client's credential (any value works; a `selfhosted` placeholder is used when
+unset). The server implements the full local agent loop: client-executed
+tools, automatic history summarization, vision attachments, multi-model
+catalogs, opt-in server-side web search (`--web-search-url`), and voice
+transcription (`--transcribe-base-url`). See
+`crates/selfhost_server/README.md` for server flags and the implemented API
+surface.
+
 ### Testing
 - `cargo nextest run --no-fail-fast --workspace --exclude command-signatures-v2` - Run tests with nextest
 - `cargo nextest run -p warp_completer --features v2` - Run completer tests with v2 features

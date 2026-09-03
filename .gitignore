@@ -70,3 +70,4 @@ __pycache__/
 # Project notes
 .note/
 .claude/scheduled_tasks.lock
+dist/

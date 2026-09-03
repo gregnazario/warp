@@ -400,28 +400,47 @@ fn project_dirs_for_app_id(
 pub fn app_group_container_path() -> Option<PathBuf> {
     use std::sync::LazyLock;
     static CONTAINER_PATH: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
-        use objc2_foundation::{NSFileManager, NSString};
-
-        let fm = NSFileManager::defaultManager();
-        // Keep in sync with Entitlements.plist
-        let group_id = format!("{}.dev.warp", crate::macos::APPLE_TEAM_ID);
-        let group_id = NSString::from_str(&group_id);
-        // containerURLForSecurityApplicationGroupIdentifier always returns a value on macOS (unlike iOS).
-        // We have to double-check that the path points to a directory we can actually use. In addition to
-        // macOS returning a path that may not exist, processes may list the container directory without
-        // having permissions to read to or write from it.
-        if let Some(url) = fm.containerURLForSecurityApplicationGroupIdentifier(&group_id)
-            && let Some(ns_path) = url.path()
-        {
-            let path = PathBuf::from(ns_path.to_string());
-            if tempfile::tempfile_in(&path).is_ok() {
-                return Some(path);
+        // The container probe talks to containermanagerd and stats a directory
+        // outside our control; either can stall indefinitely when the mount is
+        // in a bad state. Resolve it on a thread with a timeout and fall back
+        // to the regular state directory rather than hanging startup.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || sender.send(resolve_app_group_container_path()));
+        match receiver.recv_timeout(std::time::Duration::from_secs(3)) {
+            Ok(path) => path,
+            Err(_) => {
+                log::warn!(
+                    "App group container probe timed out; using the fallback state directory"
+                );
+                None
             }
         }
-
-        None
     });
     LazyLock::force(&CONTAINER_PATH).clone()
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_app_group_container_path() -> Option<PathBuf> {
+    use objc2_foundation::{NSFileManager, NSString};
+
+    let fm = NSFileManager::defaultManager();
+    // Keep in sync with Entitlements.plist
+    let group_id = format!("{}.dev.warp", crate::macos::APPLE_TEAM_ID);
+    let group_id = NSString::from_str(&group_id);
+    // containerURLForSecurityApplicationGroupIdentifier always returns a value on macOS (unlike iOS).
+    // We have to double-check that the path points to a directory we can actually use. In addition to
+    // macOS returning a path that may not exist, processes may list the container directory without
+    // having permissions to read to or write from it.
+    if let Some(url) = fm.containerURLForSecurityApplicationGroupIdentifier(&group_id)
+        && let Some(ns_path) = url.path()
+    {
+        let path = PathBuf::from(ns_path.to_string());
+        if tempfile::tempfile_in(&path).is_ok() {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 /// Returns the path to resources included in the Warp distribution.

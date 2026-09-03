@@ -1,0 +1,76 @@
+name: PARW release (macOS ARM)
+
+# Automated build of PARW — the self-hosted, Warp-infrastructure-free build.
+# - Any push to parw/master: builds and uploads the package as an artifact.
+# - Tag push parw-v*: also publishes a drag-to-install DMG as a GitHub release.
+# - workflow_dispatch: build on demand from any branch.
+
+on:
+  push:
+    branches: [parw, master]
+    tags: ["parw-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14 # Apple Silicon (M1)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            app
+
+      # prost-build invokes protoc for the multi-agent protobuf types.
+      - name: Install protobuf
+        run: brew install protobuf
+
+      # Newer Xcode images ship without the Metal toolchain; the GUI build
+      # compiles WGSL-backed shaders through `xcrun metal`.
+      - name: Ensure Metal toolchain
+        run: |
+          if ! xcrun -sdk macosx metal --version >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+
+      - name: Build release binaries
+        run: |
+          cargo build --release -p warp --bin warp-oss
+          cargo build --release -p warp_tui --bin warp-tui-oss
+          cargo build --release -p selfhost_server
+
+      - name: Package PARW
+        run: SKIP_BUILD=1 ./script/selfhost-package
+
+      - name: Build DMG
+        run: |
+          ln -s /Applications "dist/PARW-macos-arm64/Applications"
+          hdiutil create -volname PARW \
+            -srcfolder "dist/PARW-macos-arm64" \
+            -ov -format UDZO \
+            "dist/PARW-macos-arm64.dmg"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PARW-macos-arm64
+          path: |
+            dist/PARW-macos-arm64.dmg
+            dist/PARW-macos-arm64.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/parw-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/PARW-macos-arm64.dmg" \
+            --title "PARW ${GITHUB_REF_NAME#parw-v}" \
+            --notes "Self-hosted PARW build for macOS (Apple Silicon). Drag PARW.app into Applications, then clear the quarantine flag: xattr -cr /Applications/PARW.app"

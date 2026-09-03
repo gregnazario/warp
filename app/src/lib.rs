@@ -339,6 +339,10 @@ use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 pub static ASSETS: warp_assets::Assets = warp_assets::Assets;
 const TUI_SECURE_STORAGE_SERVICE_SUFFIX: &str = ".tui";
 
+/// Placeholder credential used to log into a self-hosted server when the user
+/// did not supply an API key. Self-hosted servers accept any key.
+const SELF_HOSTED_DEFAULT_API_KEY: &str = "selfhosted";
+
 fn determine_agent_source(
     launch_mode: &LaunchMode,
 ) -> Option<crate::ai::ambient_agents::AgentSource> {
@@ -459,7 +463,7 @@ impl LaunchMode {
     }
 
     fn api_key(&self) -> Option<String> {
-        match self {
+        let api_key = match self {
             LaunchMode::CommandLine { global_options, .. } => global_options.api_key.clone(),
             LaunchMode::App { api_key, .. }
             | LaunchMode::Tui {
@@ -471,7 +475,13 @@ impl LaunchMode {
             | LaunchMode::Tui {
                 entrypoint: TuiEntryPoint::CliCommand { .. },
             } => None,
-        }
+        };
+        api_key.or_else(|| {
+            // Self-hosted servers are expected to accept any key, so default to
+            // a placeholder when none was provided. This keeps Firebase (and
+            // its googleapis endpoints) entirely out of the picture.
+            ChannelState::is_self_hosted().then(|| SELF_HOSTED_DEFAULT_API_KEY.to_owned())
+        })
     }
 
     fn auth_initialization(&self) -> AuthInitialization {
@@ -756,6 +766,8 @@ pub fn run() -> Result<()> {
     // Parse command-line arguments.
     let args = warp_cli::Args::from_env();
 
+    apply_self_hosted_env_override();
+
     // Server URL overrides are only honored on internal dev channels. Release channels silently
     // ignore `--server-root-url` / `--ws-server-url` / `--session-sharing-server-url` (and their
     // `WARP_*` env-var equivalents) so shipped builds can't be redirected away from their
@@ -976,7 +988,24 @@ pub type TuiMountFn = Box<dyn FnOnce(&mut warpui::AppContext)>;
 
 /// Runs the app (or CLI / daemon). TUI entry points run after `initialize_app`
 /// in place of the GUI/CLI `launch()` path.
+/// Applies the `WARP_SELF_HOSTED_SERVER_URL` opt-in: every Warp-operated
+/// service (agent requests, GraphQL, RTC, session sharing) is redirected to
+/// the server at the given URL, and telemetry, crash reporting, and autoupdate
+/// are disabled, so nothing reaches Warp-operated endpoints. Unlike the
+/// dev-channel-only URL overrides in [`run`], this is honored on every
+/// channel and from every entry point (GUI, CLI, and TUI).
+fn apply_self_hosted_env_override() {
+    if let Ok(url) = std::env::var(warp_cli::SELF_HOSTED_SERVER_URL_ENV)
+        && !url.is_empty()
+        && let Err(e) = ChannelState::enable_self_hosted(url)
+    {
+        eprintln!("Error: Invalid self-hosted server URL: {e:#}");
+    }
+}
+
 fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
+    apply_self_hosted_env_override();
+
     let mut timer = IntervalTimer::new();
 
     // ── Early initialization (pre-AppBuilder) ──────────────────────
