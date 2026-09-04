@@ -9,14 +9,24 @@ on:
   push:
     branches: [parw, master]
     tags: ["parw-v*"]
+    # Changing this workflow alone should not trigger a full macOS release build.
+    paths-ignore: [".github/workflows/parw-release.yml"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# A manual rebuild of a commit should replace its push-triggered build, rather
+# than running a second expensive macOS release build for the same ref.
+concurrency:
+  group: parw-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-14 # Apple Silicon (M1)
+    # Cold builds normally finish in about 95 minutes; stop a hung build.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
