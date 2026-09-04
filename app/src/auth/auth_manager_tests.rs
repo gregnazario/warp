@@ -351,3 +351,16 @@ fn test_persist_skips_when_api_key_authenticated() {
         });
     });
 }
+
+#[test]
+fn self_hosted_local_user_is_valid_without_login() {
+    let output = AuthManager::self_hosted_user_output();
+    // Warp object uids must be exactly 22 characters.
+    assert_eq!(output.user.profile.uid.len(), 22);
+    assert_eq!(output.user.profile.uid, "parw-user0000000000000");
+    assert!(output.user.is_onboarded);
+    assert!(output.user.anonymous_user_info.is_none());
+    // The model catalog starts empty; the real one arrives from the backend
+    // via GetFeatureModelChoices.
+    assert!(output.user.llms.agent_mode.choices.is_empty());
+}

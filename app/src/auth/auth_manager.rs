@@ -15,6 +15,12 @@ use warp_errors::{report_error, report_if_error};
 use warp_graphql::mutations::create_anonymous_user::{
     AnonymousUserType, CreateAnonymousUserResult,
 };
+use warp_graphql::queries::get_user::{
+    FirebaseProfile as GqlFirebaseProfile, User as GqlUser, UserOutput as GqlUserOutput,
+};
+use warp_graphql::workspace::{
+    AvailableLlms as GqlAvailableLlms, FeatureModelChoice as GqlFeatureModelChoice,
+};
 use warp_server_auth::API_KEY_PREFIX;
 use warp_server_auth::user::persistence::PersistedUser;
 use warpui::r#async::Timer;
@@ -310,7 +316,71 @@ impl AuthManager {
     /// [`Self::on_user_fetched`] promotes the returned user and credentials only
     /// after the server accepts the key. A failed request leaves the client
     /// fully logged out.
+    /// Fixed local identity for self-hosted mode. Warp object uids are
+    /// exactly 22 characters; the synthesized user id matches.
+    const SELF_HOSTED_USER_UID: &'static str = "parw-user0000000000000";
+
+    /// Builds the locally-synthesized `GetUser` payload for self-hosted mode,
+    /// so authentication never requires a server round-trip. The model
+    /// catalog starts empty; the backend's `GetFeatureModelChoices` fills it
+    /// once it is reachable.
+    fn self_hosted_user_output() -> GqlUserOutput {
+        let empty_llms = || GqlAvailableLlms {
+            default_id: "selfhosted-model".to_owned(),
+            choices: Vec::new(),
+            preferred_codex_model_id: None,
+        };
+        GqlUserOutput {
+            api_key_owner_type: None,
+            principal_type: None,
+            user: GqlUser {
+                anonymous_user_info: None,
+                experiments: None,
+                global_skills: Vec::new(),
+                is_onboarded: true,
+                is_on_work_domain: false,
+                profile: GqlFirebaseProfile {
+                    display_name: Some("PARW (self-hosted)".to_owned()),
+                    email: Some("agent@parw.local".to_owned()),
+                    needs_sso_link: false,
+                    photo_url: None,
+                    uid: Self::SELF_HOSTED_USER_UID.to_owned(),
+                },
+                llms: GqlFeatureModelChoice {
+                    agent_mode: empty_llms(),
+                    planning: empty_llms(),
+                    coding: empty_llms(),
+                    cli_agent: empty_llms(),
+                    computer_use_agent: empty_llms(),
+                },
+            },
+        }
+    }
+
     pub fn authenticate_api_key(&self, api_key: String, ctx: &mut ModelContext<Self>) {
+        // Self-hosted: the backend is the user's own infrastructure, so there
+        // is no login. Construct the identity locally and go straight to the
+        // authenticated state — AI works immediately, even if the backend
+        // is not reachable yet.
+        if ChannelState::is_self_hosted() {
+            log::info!("Self-hosted mode: signing in locally (no login required)");
+            let api_key = if api_key.starts_with(API_KEY_PREFIX) {
+                api_key
+            } else {
+                format!("{API_KEY_PREFIX}{api_key}")
+            };
+            let result = Ok(FetchUserResult {
+                user_output: Self::self_hosted_user_output(),
+                credentials: Credentials::ApiKey {
+                    key: api_key,
+                    owner_type: None,
+                },
+                from_refresh: false,
+            });
+            let _ = ctx.spawn(async move { result }, Self::on_user_fetched);
+            return;
+        }
+
         log::info!("Authenticating via pending API key");
         let api_key = if api_key.starts_with(API_KEY_PREFIX) {
             api_key
