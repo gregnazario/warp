@@ -35,6 +35,7 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$STAGE_ROOT/bin"
 
 # ── GUI .app ────────────────────────────────────────────────────────────────
 cp target/release/warp-oss "$MACOS_DIR/warp-oss"
+cp target/release/selfhost_server "$MACOS_DIR/selfhost_server"
 
 if [[ -f "$ICON_SRC" ]]; then
     if ICONSET="$STAGE_ROOT/icon.iconset"; mkdir -p "$ICONSET"; then
@@ -46,13 +47,27 @@ if [[ -f "$ICON_SRC" ]]; then
     fi
 fi
 
+# The app's executable is a launcher: it auto-starts the bundled backend
+# (if not already running) and then execs the GUI, so double-clicking PARW.app
+# is all the user does.
+cat > "$MACOS_DIR/PARWLauncher" <<'LAUNCHER'
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG="${HOME}/Library/Logs/PARW-backend.log"
+if ! curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+    nohup "$DIR/selfhost_server" --bind 127.0.0.1:8080 >>"$LOG" 2>&1 &
+fi
+exec "$DIR/warp-oss"
+LAUNCHER
+chmod +x "$MACOS_DIR/PARWLauncher"
+
 cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleExecutable</key><string>warp-oss</string>
+    <key>CFBundleExecutable</key><string>PARWLauncher</string>
     <key>CFBundleIdentifier</key><string>dev.warp.WarpOss</string>
     <key>CFBundleName</key><string>PARW</string>
     <key>CFBundleDisplayName</key><string>PARW</string>
@@ -82,15 +97,6 @@ cp target/release/warp-tui-oss "$STAGE_ROOT/bin/warp-tui-oss"
 cat > "$STAGE_ROOT/Start PARW.command" <<'LAUNCHER'
 #!/bin/bash
 cd "$(dirname "$0")"
-LOG="${HOME}/Library/Logs/selfhost-server.log"
-if ! curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
-    echo "Starting the PARW agent backend (log: $LOG)..."
-    nohup ./bin/selfhost_server --bind 127.0.0.1:8080 >>"$LOG" 2>&1 &
-    for _ in $(seq 1 50); do
-        curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
-        sleep 0.2
-    done
-fi
 open "PARW.app"
 LAUNCHER
 chmod +x "$STAGE_ROOT/Start PARW.command"
@@ -104,11 +110,16 @@ bin/selfhost_server) and whatever LLM endpoint you point it at. No Warp cloud
 services, no telemetry, no crash reporting, no autoupdate.
 
 Quick start (macOS, Apple Silicon):
-  1. Move this folder anywhere (e.g. /Applications or your home dir).
+  1. Drag PARW.app into /Applications (or keep it anywhere).
   2. Because the build is unsigned, clear the quarantine flag after transfer:
-         xattr -cr "PARW.app" .
-  3. Double-click "Start PARW.command". It starts the backend and
-     opens Warp. Type a prompt prefixed with "#" to use the agent.
+         xattr -cr /Applications/PARW.app
+  3. Open PARW. It starts its own agent backend automatically.
+     Type a prompt prefixed with "#" to use the agent.
+
+If you prefer the terminal UI: ./bin/warp-tui-oss (it expects the backend on
+127.0.0.1:8080; start it with
+  ./PARW.app/Contents/MacOS/selfhost_server --bind 127.0.0.1:8080 &
+).
 
 LLM backends (autodetected in order):
   - Ollama     http://127.0.0.1:11434
@@ -125,8 +136,9 @@ Cloud providers (optional):
   --provider zai|opencode|xai|openai|anthropic|google|openrouter  with --<name>-api-key
 
 Also in this folder:
-  bin/warp-tui-oss     terminal UI (same self-hosted env var)
-  The backend serves /healthz and /metrics on 127.0.0.1:8080.
+  bin/warp-tui-oss     terminal UI front-end
+  The backend serves /healthz and /metrics on 127.0.0.1:8080
+  (backend log: ~/Library/Logs/PARW-backend.log).
 
 Notes:
   - The backend listens on loopback only. If you expose it to your network,
