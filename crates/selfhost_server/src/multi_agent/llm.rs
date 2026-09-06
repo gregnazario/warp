@@ -94,11 +94,21 @@ async fn post_stream(
     headers: Vec<(String, String)>,
     body: Value,
 ) -> Result<reqwest::Response> {
-    let mut request = client.post(url).json(&body);
+    let mut request = client.post(url.clone()).json(&body);
     for (name, value) in headers {
         request = request.header(name.as_str(), value);
     }
-    let response = request.send().await?;
+    let response = request.send().await.map_err(|error| {
+        if error.is_connect() {
+            anyhow::anyhow!(
+                "No LLM backend is responding at {url}. \
+                 For local models install Ollama (https://ollama.com), start it, and pull a model \
+                 (e.g. `ollama pull qwen3:0.6b`); or point --llm-base-url / --provider at a reachable endpoint."
+            )
+        } else {
+            anyhow::Error::new(error).context("LLM endpoint request failed")
+        }
+    })?;
     let status = response.status();
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
@@ -542,7 +552,7 @@ mod chatgpt {
 
         let url = format!("{}/responses", llm.base_url.trim_end_matches('/'));
         let mut request = client
-            .post(url)
+            .post(url.clone())
             .header(
                 "Authorization",
                 format!("Bearer {}", llm.api_key.clone().unwrap_or_default()),
@@ -554,7 +564,17 @@ mod chatgpt {
         if let Some(account_id) = &llm.account_id {
             request = request.header("chatgpt-account-id", account_id);
         }
-        let response = request.send().await?;
+        let response = request.send().await.map_err(|error| {
+        if error.is_connect() {
+            anyhow::anyhow!(
+                "No LLM backend is responding at {url}. \
+                 For local models install Ollama (https://ollama.com), start it, and pull a model \
+                 (e.g. `ollama pull qwen3:0.6b`); or point --llm-base-url / --provider at a reachable endpoint."
+            )
+        } else {
+            anyhow::Error::new(error).context("LLM endpoint request failed")
+        }
+    })?;
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();

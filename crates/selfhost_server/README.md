@@ -66,8 +66,8 @@ Locally:
 script/selfhost-package       # builds release binaries + stages dist/
 ```
 
-That produces `dist/PARW-macos-arm64.zip` and a drag-to-install
-`dist/PARW-macos-arm64.dmg` containing:
+That produces `dist/PARW-macos-universal.zip` and a drag-to-install
+`dist/PARW-macos-universal.dmg` containing:
 
 - `PARW.app` — the GUI, preconfigured (via `LSEnvironment`) to use the local
   backend at `127.0.0.1:8080`

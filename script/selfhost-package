@@ -16,8 +16,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 cd "$REPO_ROOT"
 
-ARCH="$(uname -m)"
-STAGE_ROOT="dist/PARW-macos-${ARCH}"
+STAGE_ROOT="dist/PARW-macos-universal"
 APP="$STAGE_ROOT/PARW.app"
 PLIST="$APP/Contents/Info.plist"
 MACOS_DIR="$APP/Contents/MacOS"
@@ -34,8 +33,15 @@ rm -rf "$STAGE_ROOT" "$STAGE_ROOT.zip"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$STAGE_ROOT/bin"
 
 # ── GUI .app ────────────────────────────────────────────────────────────────
-cp target/release/warp-oss "$MACOS_DIR/warp-oss"
-cp target/release/selfhost_server "$MACOS_DIR/selfhost_server"
+# Universal (arm64 + x86_64) so the same package runs on any modern Mac.
+lipo -create \
+    target/release/warp-oss \
+    target/x86_64-apple-darwin/release/warp-oss \
+    -output "$MACOS_DIR/warp-oss"
+lipo -create \
+    target/release/selfhost_server \
+    target/x86_64-apple-darwin/release/selfhost_server \
+    -output "$MACOS_DIR/selfhost_server"
 
 if [[ -f "$ICON_SRC" ]]; then
     if ICONSET="$STAGE_ROOT/icon.iconset"; mkdir -p "$ICONSET"; then
@@ -91,8 +97,14 @@ if [[ -d app/assets/onboarding ]]; then
 fi
 
 # ── Backend + TUI + launcher ────────────────────────────────────────────────
-cp target/release/selfhost_server "$STAGE_ROOT/bin/selfhost_server"
-cp target/release/warp-tui-oss "$STAGE_ROOT/bin/warp-tui-oss"
+lipo -create \
+    target/release/warp-tui-oss \
+    target/x86_64-apple-darwin/release/warp-tui-oss \
+    -output "$STAGE_ROOT/bin/warp-tui-oss"
+lipo -create \
+    target/release/selfhost_server \
+    target/x86_64-apple-darwin/release/selfhost_server \
+    -output "$STAGE_ROOT/bin/selfhost_server"
 
 cat > "$STAGE_ROOT/Start PARW.command" <<'LAUNCHER'
 #!/bin/bash
@@ -155,13 +167,13 @@ codesign --force --deep -s - "$APP" 2>/dev/null || true
 codesign --force -s - "$STAGE_ROOT/bin/selfhost_server" 2>/dev/null || true
 codesign --force -s - "$STAGE_ROOT/bin/warp-tui-oss" 2>/dev/null || true
 
-(cd dist && zip -qr "PARW-macos-${ARCH}.zip" "PARW-macos-${ARCH}")
+(cd dist && zip -qr "PARW-macos-universal.zip" "PARW-macos-universal")
 
 # Drag-to-install disk image.
 hdiutil create -volname PARW -srcfolder "$STAGE_ROOT" -ov -format UDZO \
-    "dist/PARW-macos-${ARCH}.dmg" >/dev/null
+    "dist/PARW-macos-universal.dmg" >/dev/null
 
 echo
-echo "Packaged: dist/PARW-macos-${ARCH}.zip"
-echo "DMG:      dist/PARW-macos-${ARCH}.dmg"
+echo "Packaged: dist/PARW-macos-universal.zip"
+echo "DMG:      dist/PARW-macos-universal.dmg"
 echo "Folder:   $STAGE_ROOT"
