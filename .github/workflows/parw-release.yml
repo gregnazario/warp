@@ -50,36 +50,30 @@ jobs:
             xcodebuild -downloadComponent MetalToolchain
           fi
 
-      - name: Add x86_64 target
-        run: rustup target add x86_64-apple-darwin
-
       - name: Build release binaries
         run: |
           cargo build --release -p warp --bin warp-oss
           cargo build --release -p warp_tui --bin warp-tui-oss
           cargo build --release -p selfhost_server
-          cargo build --release --target x86_64-apple-darwin -p warp --bin warp-oss
-          cargo build --release --target x86_64-apple-darwin -p warp_tui --bin warp-tui-oss
-          cargo build --release --target x86_64-apple-darwin -p selfhost_server
 
       - name: Package PARW
         run: SKIP_BUILD=1 ./script/selfhost-package
 
       - name: Build DMG
         run: |
-          ln -s /Applications "dist/PARW-macos-universal/Applications"
+          ln -s /Applications "dist/PARW-macos-arm64/Applications"
           hdiutil create -volname PARW \
-            -srcfolder "dist/PARW-macos-universal" \
+            -srcfolder "dist/PARW-macos-arm64" \
             -ov -format UDZO \
-            "dist/PARW-macos-universal.dmg"
+            "dist/PARW-macos-arm64.dmg"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PARW-macos-universal
+          name: PARW-macos-arm64
           path: |
-            dist/PARW-macos-universal.dmg
-            dist/PARW-macos-universal.zip
+            dist/PARW-macos-arm64.dmg
+            dist/PARW-macos-arm64.zip
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/parw-v')
@@ -87,6 +81,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            "dist/PARW-macos-universal.dmg" \
+            "dist/PARW-macos-arm64.dmg" \
             --title "PARW ${GITHUB_REF_NAME#parw-v}" \
             --notes "Self-hosted PARW build for macOS (Apple Silicon). Drag PARW.app into Applications, then clear the quarantine flag: xattr -cr /Applications/PARW.app"
