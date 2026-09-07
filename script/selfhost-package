@@ -53,19 +53,13 @@ if [[ -f "$ICON_SRC" ]]; then
     fi
 fi
 
-# The app's executable is a launcher: it auto-starts the bundled backend
-# (if not already running) and then execs the GUI, so double-clicking PARW.app
-# is all the user does.
-cat > "$MACOS_DIR/PARWLauncher" <<'LAUNCHER'
-#!/bin/bash
-DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG="${HOME}/Library/Logs/PARW-backend.log"
-if ! curl -sf http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
-    nohup "$DIR/selfhost_server" --bind 127.0.0.1:8080 >>"$LOG" 2>&1 &
-fi
-exec "$DIR/warp-oss"
-LAUNCHER
-chmod +x "$MACOS_DIR/PARWLauncher"
+# The app's executable is a compiled launcher (launchd cannot spawn scripts
+# as CFBundleExecutable): it auto-starts the bundled backend, then execs the
+# GUI, so double-clicking PARW.app is all the user does.
+lipo -create \
+    target/release/parw_launcher \
+    target/x86_64-apple-darwin/release/parw_launcher \
+    -output "$MACOS_DIR/PARWLauncher"
 
 cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
