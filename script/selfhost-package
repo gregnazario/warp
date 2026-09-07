@@ -33,15 +33,20 @@ rm -rf "$STAGE_ROOT" "$STAGE_ROOT.zip"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$STAGE_ROOT/bin"
 
 # ── GUI .app ────────────────────────────────────────────────────────────────
-# Universal (arm64 + x86_64) so the same package runs on any modern Mac.
-lipo -create \
-    target/release/warp-oss \
-    target/x86_64-apple-darwin/release/warp-oss \
-    -output "$MACOS_DIR/warp-oss"
-lipo -create \
-    target/release/selfhost_server \
-    target/x86_64-apple-darwin/release/selfhost_server \
-    -output "$MACOS_DIR/selfhost_server"
+# Universal (arm64 + x86_64) when the x86_64 slice was built; otherwise the
+# package is Apple Silicon only.
+build_universal_bin() {
+    local name="$1"
+    local arm="target/release/$name"
+    local x86="target/x86_64-apple-darwin/release/$name"
+    if [[ -f "$x86" ]]; then
+        lipo -create "$arm" "$x86" -output "$MACOS_DIR/$name"
+    else
+        cp "$arm" "$MACOS_DIR/$name"
+    fi
+}
+build_universal_bin warp-oss
+build_universal_bin selfhost_server
 
 if [[ -f "$ICON_SRC" ]]; then
     if ICONSET="$STAGE_ROOT/icon.iconset"; mkdir -p "$ICONSET"; then

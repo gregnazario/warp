@@ -81,6 +81,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            "dist/PARW-macos-arm64.dmg" \
             --title "PARW ${GITHUB_REF_NAME#parw-v}" \
-            --notes "Self-hosted PARW build for macOS (Apple Silicon). Drag PARW.app into Applications, then clear the quarantine flag: xattr -cr /Applications/PARW.app"
+            --notes "Self-hosted PARW build for macOS. Drag PARW.app into Applications, then clear the quarantine flag: xattr -cr /Applications/PARW.app" \
+            || gh release edit "${GITHUB_REF_NAME}" --notes "Self-hosted PARW build for macOS."
+          gh release upload "${GITHUB_REF_NAME}" dist/PARW-macos-arm64.dmg --clobber
