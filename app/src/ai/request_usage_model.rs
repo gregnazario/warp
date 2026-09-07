@@ -482,6 +482,10 @@ impl AIRequestUsageModel {
     /// Returns the number of remaining requests the user has based on their latest rate limit info.
     /// If the current time is past the next refresh time, then the number of remaining reqs is the limit.
     fn requests_remaining(&self) -> usize {
+        // Self-hosted: there is no Warp credit system to meter against.
+        if warp_core::channel::ChannelState::is_self_hosted() {
+            return usize::MAX;
+        }
         if self.next_refresh_time() <= Utc::now() || self.is_unlimited() {
             self.request_limit_info.limit
         } else {
@@ -499,6 +503,10 @@ impl AIRequestUsageModel {
     /// Returns `true` if the user can start an interactive AI request.
     /// Prefers the server decision when present; otherwise uses the pre-fetch fallback.
     pub fn has_any_ai_remaining<S: TeamScope + ?Sized>(&self, scope: &S, ctx: &AppContext) -> bool {
+        // Self-hosted: never gate on Warp credits or request limits.
+        if warp_core::channel::ChannelState::is_self_hosted() {
+            return true;
+        }
         if let Some(availability) = self.server_availability.latest {
             return Self::server_availability_permits_ai(availability, scope, ctx);
         }
