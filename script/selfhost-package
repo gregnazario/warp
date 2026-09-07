@@ -1,15 +1,16 @@
 #!/bin/bash
 # Packages PARW: a self-contained, Warp-infrastructure-free build for macOS:
 #
-#   dist/PARW-macos-arm64/
-#     PARW.app                      GUI, launches pointed at the local backend
+#   dist/PARW-macos-universal/
+#     PARW.app                      GUI; auto-starts the bundled backend
 #     bin/selfhost_server           agent backend binary
 #     bin/warp-tui-oss              TUI front-end
-#     Start PARW.command            double-click: starts backend + opens GUI
+#     Install PARW.command          clears quarantine + opens PARW
 #     README.txt                    setup instructions
 #
-# and zips it to dist/PARW-macos-arm64.zip. Builds release binaries
-# first unless SKIP_BUILD=1 is exported.
+# and zips it to dist/PARW-macos-universal.zip plus a drag-to-install
+# dist/PARW-macos-universal.dmg. Builds release binaries first unless
+# SKIP_BUILD=1 is exported.
 
 set -euo pipefail
 
@@ -26,28 +27,54 @@ ICON_SRC="app/channels/oss/icon/no-padding/512x512.png"
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
     cargo build --release -p warp --bin warp-oss
     cargo build --release -p warp_tui --bin warp-tui-oss
-    cargo build --release -p selfhost_server
+    cargo build --release -p selfhost_server --bin selfhost_server
+    cargo build --release -p selfhost_server --bin parw_launcher
+
+    # Optional x86_64 slices so the package also runs on Intel Macs. Skipped
+    # when the target is unavailable; the package is then Apple Silicon only.
+    if rustup target add x86_64-apple-darwin >/dev/null 2>&1; then
+        cargo build --release --target x86_64-apple-darwin -p warp --bin warp-oss
+        cargo build --release --target x86_64-apple-darwin \
+            -p warp_tui --bin warp-tui-oss
+        cargo build --release --target x86_64-apple-darwin \
+            -p selfhost_server --bin selfhost_server
+        cargo build --release --target x86_64-apple-darwin \
+            -p selfhost_server --bin parw_launcher
+    else
+        echo "x86_64 target unavailable; packaging Apple Silicon only."
+    fi
 fi
 
 rm -rf "$STAGE_ROOT" "$STAGE_ROOT.zip"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$STAGE_ROOT/bin"
 
-# ── GUI .app ────────────────────────────────────────────────────────────────
-# Universal (arm64 + x86_64) when the x86_64 slice was built; otherwise the
-# package is Apple Silicon only.
+# ── Universal binary helper ─────────────────────────────────────────────────
+# Fat arm64+x86_64 when the x86_64 slice was built; otherwise arm64-only.
 build_universal_bin() {
     local name="$1"
     local arm="target/release/$name"
     local x86="target/x86_64-apple-darwin/release/$name"
     if [[ -f "$x86" ]]; then
-        lipo -create "$arm" "$x86" -output "$MACOS_DIR/$name"
+        lipo -create "$arm" "$x86" -output "$STAGE_ROOT/bin/$name"
     else
-        cp "$arm" "$MACOS_DIR/$name"
+        cp "$arm" "$STAGE_ROOT/bin/$name"
     fi
 }
+
 build_universal_bin warp-oss
 build_universal_bin selfhost_server
+build_universal_bin warp-tui-oss
+build_universal_bin parw_launcher
 
+APP="$STAGE_ROOT/PARW.app"
+PLIST="$APP/Contents/Info.plist"
+MACOS_DIR="$APP/Contents/MacOS"
+RESOURCES_DIR="$APP/Contents/Resources"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+mv "$STAGE_ROOT/bin/warp-oss" "$MACOS_DIR/"
+mv "$STAGE_ROOT/bin/parw_launcher" "$MACOS_DIR/PARWLauncher"
+
+ICON_SRC="app/channels/oss/icon/no-padding/512x512.png"
 if [[ -f "$ICON_SRC" ]]; then
     if ICONSET="$STAGE_ROOT/icon.iconset"; mkdir -p "$ICONSET"; then
         sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png" >/dev/null 2>&1 || true
@@ -57,14 +84,6 @@ if [[ -f "$ICON_SRC" ]]; then
         rm -rf "$ICONSET"
     fi
 fi
-
-# The app's executable is a compiled launcher (launchd cannot spawn scripts
-# as CFBundleExecutable): it auto-starts the bundled backend, then execs the
-# GUI, so double-clicking PARW.app is all the user does.
-lipo -create \
-    target/release/parw_launcher \
-    target/x86_64-apple-darwin/release/parw_launcher \
-    -output "$MACOS_DIR/PARWLauncher"
 
 cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -95,16 +114,6 @@ if [[ -d app/assets/onboarding ]]; then
     cp -R app/assets/onboarding "$RESOURCES_DIR/assets/"
 fi
 
-# ── Backend + TUI + launcher ────────────────────────────────────────────────
-lipo -create \
-    target/release/warp-tui-oss \
-    target/x86_64-apple-darwin/release/warp-tui-oss \
-    -output "$STAGE_ROOT/bin/warp-tui-oss"
-lipo -create \
-    target/release/selfhost_server \
-    target/x86_64-apple-darwin/release/selfhost_server \
-    -output "$STAGE_ROOT/bin/selfhost_server"
-
 cat > "$STAGE_ROOT/Install PARW.command" <<'INSTALLER'
 #!/bin/bash
 cd "$(dirname "$0")"
@@ -120,33 +129,24 @@ cat > "$STAGE_ROOT/README.txt" <<'README'
 PARW — self-hosted build
 ========================
 
-Everything here talks only to your machine: the agent backend (this folder's
-bin/selfhost_server) and whatever LLM endpoint you point it at. No Warp cloud
-services, no telemetry, no crash reporting, no autoupdate.
+Everything here talks only to your machine: the agent backend (bundled with
+PARW.app) and whatever LLM endpoint you point it at. No Warp cloud services,
+no telemetry, no crash reporting, no autoupdate.
 
-Quick start (macOS, Apple Silicon):
-  1. Double-click "Install PARW.command" — it clears the unsigned-build
-     quarantine flag and opens PARW. (If macOS blocks the script itself,
-     right-click it and choose Open, or paste this into Terminal instead:
+Quick start (macOS, Apple Silicon or Intel):
+  1. Drag PARW.app into /Applications (or keep it anywhere).
+  2. Because the build is unsigned, clear the quarantine flag after transfer:
          xattr -dr com.apple.quarantine /Applications/PARW.app
-     — adjusting the path to wherever PARW.app is.)
-  2. PARW starts its own agent backend automatically.
-  3. Type a prompt prefixed with "#" to use the agent.
-
-If macOS says PARW.app is "damaged": it is not — this build is unsigned, and
-downloaded unsigned apps get flagged. The xattr command in step 1 fixes it.
-
-If you prefer the terminal UI: ./bin/warp-tui-oss (it expects the backend on
-127.0.0.1:8080; start it with
-  ./PARW.app/Contents/MacOS/selfhost_server --bind 127.0.0.1:8080 &
-).
+     or double-click "Install PARW.command" next to the app.
+  3. Open PARW. It starts its own agent backend automatically.
+  4. Type a prompt prefixed with "#" to use the agent.
 
 LLM backends (autodetected in order):
   - Ollama     http://127.0.0.1:11434
   - LM Studio  http://127.0.0.1:1234
   - MLX-LM     http://127.0.0.1:8080
 Detected models appear in Warp's model picker. Force one with
-  ./bin/selfhost_server --llm-backend ollama
+  PARW.app/Contents/MacOS/selfhost_server --llm-backend ollama
 or point at any OpenAI-compatible endpoint with --llm-base-url.
 
 Cloud providers (optional):
@@ -170,14 +170,13 @@ Notes:
     endpoint (--transcribe-base-url) or SearXNG (--web-search-url).
 README
 
-# ── Sign + zip ──────────────────────────────────────────────────────────────
+# ── Sign + zip + DMG ────────────────────────────────────────────────────────
 codesign --force --deep -s - "$APP" 2>/dev/null || true
 codesign --force -s - "$STAGE_ROOT/bin/selfhost_server" 2>/dev/null || true
 codesign --force -s - "$STAGE_ROOT/bin/warp-tui-oss" 2>/dev/null || true
 
 (cd dist && zip -qr "PARW-macos-universal.zip" "PARW-macos-universal")
 
-# Drag-to-install disk image.
 hdiutil create -volname PARW -srcfolder "$STAGE_ROOT" -ov -format UDZO \
     "dist/PARW-macos-universal.dmg" >/dev/null
 
