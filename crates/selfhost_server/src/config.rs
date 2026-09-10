@@ -222,6 +222,18 @@ impl Config {
         custom_providers: Option<&warp_multi_agent_api::request::settings::CustomModelProviders>,
         api_keys: Option<&warp_multi_agent_api::request::settings::ApiKeys>,
     ) -> ResolvedLlm {
+        // The client's "auto" selection means "server, pick the default" —
+        // resolve it to the default served model.
+        let requested_model = if requested_model.eq_ignore_ascii_case("auto") {
+            self.llm_models
+                .first()
+                .cloned()
+                .or_else(|| self.llm_model.clone())
+                .unwrap_or_else(|| requested_model.to_owned())
+        } else {
+            requested_model.to_owned()
+        };
+
         if let Some(provider) = custom_providers.and_then(|providers| {
             providers.providers.iter().find(|provider| {
                 provider
@@ -251,17 +263,17 @@ impl Config {
         }
 
         if self.provider.is_some()
-            && let Some(resolved) = self.explicit_provider_route(requested_model)
+            && let Some(resolved) = self.explicit_provider_route(&requested_model)
         {
             return resolved;
         }
 
-        if let Some(resolved) = self.native_key_route(requested_model) {
+        if let Some(resolved) = self.native_key_route(&requested_model) {
             return resolved;
         }
 
         if self.byok_direct
-            && let Some(resolved) = byok_provider_route(requested_model, api_keys)
+            && let Some(resolved) = byok_provider_route(&requested_model, api_keys)
         {
             return resolved;
         }

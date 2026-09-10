@@ -52,9 +52,9 @@ Not supported: cloud/ambient agents, Warp Drive, codebase embedding indexing,
 conversation sharing. Those features fail locally rather than reaching Warp's
 servers.
 
-## Packaged builds — PARW (run on another Mac)
+## Packaged builds — PRAW (run on another Mac)
 
-Rebrand name: **PARW**. Automated builds run on GitHub Actions
+Rebrand name: **PRAW**. Automated builds run on GitHub Actions
 (`.github/workflows/parw-release.yml`): every push to `parw`/`master` builds
 a macOS ARM package artifact, and pushing a `parw-v*` tag publishes a
 drag-to-install DMG as a release. Trigger manually with
@@ -66,18 +66,18 @@ Locally:
 script/selfhost-package       # builds release binaries + stages dist/
 ```
 
-That produces `dist/PARW-macos-universal.zip` and a drag-to-install
-`dist/PARW-macos-universal.dmg` containing:
+That produces `dist/PRAW-macos-universal.zip` and a drag-to-install
+`dist/PRAW-macos-universal.dmg` containing:
 
-- `PARW.app` — the GUI, preconfigured (via `LSEnvironment`) to use the local
+- `PRAW.app` — the GUI, preconfigured (via `LSEnvironment`) to use the local
   backend at `127.0.0.1:8080`
 - `bin/selfhost_server` and `bin/warp-tui-oss`
-- `Start PARW.command` — double-click to start the backend and open the GUI
+- `Start PRAW.command` — double-click to start the backend and open the GUI
 - `README.txt` — setup instructions
 
-On the other machine: mount/open the DMG, drag PARW into Applications, clear
-the quarantine flag on the unsigned build (`xattr -cr /Applications/PARW.app`),
-install Ollama/LM Studio/MLX-LM, and launch PARW. To target a different
+On the other machine: mount/open the DMG, drag PRAW into Applications, clear
+the quarantine flag on the unsigned build (`xattr -cr /Applications/PRAW.app`),
+install Ollama/LM Studio/MLX-LM, and launch PRAW. To target a different
 server, run the binary directly with `WARP_SELF_HOSTED_SERVER_URL=<url>`. The
 package is Apple-silicon native; on Intel or another OS, build from source
 with `cargo build --release` (the backend and TUI are pure Rust; the GUI

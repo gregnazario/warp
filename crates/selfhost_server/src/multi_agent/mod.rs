@@ -671,6 +671,9 @@ fn handle_request(
                 assistant_message_id = uuid::Uuid::new_v4().to_string();
             }
 
+            if let Err(error) = &result {
+                tracing::error!("LLM completion failed: {error:#}");
+            }
             if result.is_ok() {
                 token_cache_metrics
                     .agent_tool_calls(client_tool_calls.len());

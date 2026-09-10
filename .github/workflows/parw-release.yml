@@ -1,6 +1,6 @@
-name: PARW release (macOS ARM)
+name: PRAW release (macOS ARM)
 
-# Automated build of PARW — the self-hosted, Warp-infrastructure-free build.
+# Automated build of PRAW — the self-hosted, Warp-infrastructure-free build.
 # - Any push to parw/master: builds and uploads the package as an artifact.
 # - Tag push parw-v*: also publishes a drag-to-install DMG as a GitHub release.
 # - workflow_dispatch: build on demand from any branch.
@@ -56,24 +56,24 @@ jobs:
           cargo build --release -p warp_tui --bin warp-tui-oss
           cargo build --release -p selfhost_server
 
-      - name: Package PARW
+      - name: Package PRAW
         run: SKIP_BUILD=1 ./script/selfhost-package
 
       - name: Build DMG
         run: |
-          ln -s /Applications "dist/PARW-macos-universal/Applications"
-          hdiutil create -volname PARW \
-            -srcfolder "dist/PARW-macos-universal" \
+          ln -s /Applications "dist/PRAW-macos-universal/Applications"
+          hdiutil create -volname PRAW \
+            -srcfolder "dist/PRAW-macos-universal" \
             -ov -format UDZO \
-            "dist/PARW-macos-universal.dmg"
+            "dist/PRAW-macos-universal.dmg"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PARW-macos-universal
+          name: PRAW-macos-universal
           path: |
-            dist/PARW-macos-universal.dmg
-            dist/PARW-macos-universal.zip
+            dist/PRAW-macos-universal.dmg
+            dist/PRAW-macos-universal.zip
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/parw-v')
@@ -81,7 +81,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            --title "PARW ${GITHUB_REF_NAME#parw-v}" \
-            --notes "Self-hosted PARW build for macOS. Drag PARW.app into Applications, then clear the quarantine flag: xattr -cr /Applications/PARW.app" \
-            || gh release edit "${GITHUB_REF_NAME}" --notes "Self-hosted PARW build for macOS."
-          gh release upload "${GITHUB_REF_NAME}" dist/PARW-macos-universal.dmg --clobber
+            --title "PRAW ${GITHUB_REF_NAME#parw-v}" \
+            --notes "Self-hosted PRAW build for macOS. Drag PRAW.app into Applications, then clear the quarantine flag: xattr -cr /Applications/PRAW.app" \
+            || gh release edit "${GITHUB_REF_NAME}" --notes "Self-hosted PRAW build for macOS."
+          gh release upload "${GITHUB_REF_NAME}" dist/PRAW-macos-universal.dmg --clobber

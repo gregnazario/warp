@@ -1,15 +1,15 @@
 #!/bin/bash
-# Packages PARW: a self-contained, Warp-infrastructure-free build for macOS:
+# Packages PRAW: a self-contained, Warp-infrastructure-free build for macOS:
 #
-#   dist/PARW-macos-universal/
-#     PARW.app                      GUI; auto-starts the bundled backend
+#   dist/PRAW-macos-universal/
+#     PRAW.app                      GUI; auto-starts the bundled backend
 #     bin/selfhost_server           agent backend binary
-#     bin/warp-tui-oss              TUI front-end
-#     Install PARW.command          clears quarantine + opens PARW
+#     bin/PRAW-tui              TUI front-end
+#     Install PRAW.command          clears quarantine + opens PRAW
 #     README.txt                    setup instructions
 #
-# and zips it to dist/PARW-macos-universal.zip plus a drag-to-install
-# dist/PARW-macos-universal.dmg. Builds release binaries first unless
+# and zips it to dist/PRAW-macos-universal.zip plus a drag-to-install
+# dist/PRAW-macos-universal.dmg. Builds release binaries first unless
 # SKIP_BUILD=1 is exported.
 
 set -euo pipefail
@@ -17,12 +17,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 cd "$REPO_ROOT"
 
-STAGE_ROOT="dist/PARW-macos-universal"
-APP="$STAGE_ROOT/PARW.app"
+STAGE_ROOT="dist/PRAW-macos-universal"
+APP="$STAGE_ROOT/PRAW.app"
 PLIST="$APP/Contents/Info.plist"
 MACOS_DIR="$APP/Contents/MacOS"
 RESOURCES_DIR="$APP/Contents/Resources"
-ICON_SRC="app/channels/oss/icon/no-padding/512x512.png"
+ICON_SRC="resources/parw/icon_1024.png"
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
     cargo build --release -p warp --bin warp-oss
@@ -61,20 +61,36 @@ build_universal_bin() {
     fi
 }
 
-build_universal_bin warp-oss
-build_universal_bin selfhost_server
-build_universal_bin warp-tui-oss
-build_universal_bin parw_launcher
-
-APP="$STAGE_ROOT/PARW.app"
+APP="$STAGE_ROOT/PRAW.app"
 PLIST="$APP/Contents/Info.plist"
 MACOS_DIR="$APP/Contents/MacOS"
 RESOURCES_DIR="$APP/Contents/Resources"
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
-mv "$STAGE_ROOT/bin/warp-oss" "$MACOS_DIR/"
-mv "$STAGE_ROOT/bin/parw_launcher" "$MACOS_DIR/PARWLauncher"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$STAGE_ROOT/bin"
 
-ICON_SRC="app/channels/oss/icon/no-padding/512x512.png"
+# Universal (arm64 + x86_64) when the x86_64 slice was built; otherwise
+# arm64-only. warp-oss, selfhost_server, and PRAWLauncher all live inside the
+# .app so it is fully self-contained; the TUI goes in bin/.
+stage_universal() {
+    local name="$1"
+    local arm="target/release/$name"
+    local x86="target/x86_64-apple-darwin/release/$name"
+    if [[ -f "$x86" ]]; then
+        lipo -create "$arm" "$x86" -output "$STAGE_ROOT/bin/$name"
+    else
+        cp "$arm" "$STAGE_ROOT/bin/$name"
+    fi
+}
+stage_universal warp-oss
+stage_universal selfhost_server
+stage_universal warp-tui-oss
+mv "$STAGE_ROOT/bin/warp-tui-oss" "$STAGE_ROOT/bin/PRAW-tui"
+stage_universal parw_launcher
+
+mv "$STAGE_ROOT/bin/warp-oss" "$MACOS_DIR/warp-oss"
+mv "$STAGE_ROOT/bin/parw_launcher" "$MACOS_DIR/PRAWLauncher"
+# Keep a copy of the backend in bin/ too for TUI users (README references it).
+cp "$STAGE_ROOT/bin/selfhost_server" "$MACOS_DIR/selfhost_server"
+
 if [[ -f "$ICON_SRC" ]]; then
     if ICONSET="$STAGE_ROOT/icon.iconset"; mkdir -p "$ICONSET"; then
         sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png" >/dev/null 2>&1 || true
@@ -91,10 +107,10 @@ cat > "$PLIST" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleExecutable</key><string>PARWLauncher</string>
-    <key>CFBundleIdentifier</key><string>dev.warp.WarpOss</string>
-    <key>CFBundleName</key><string>PARW</string>
-    <key>CFBundleDisplayName</key><string>PARW</string>
+    <key>CFBundleExecutable</key><string>PRAWLauncher</string>
+    <key>CFBundleIdentifier</key><string>dev.parw.PRAW</string>
+    <key>CFBundleName</key><string>PRAW</string>
+    <key>CFBundleDisplayName</key><string>PRAW</string>
     <key>CFBundleShortVersionString</key><string>selfhost</string>
     <key>CFBundleVersion</key><string>0.1.0</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -114,31 +130,31 @@ if [[ -d app/assets/onboarding ]]; then
     cp -R app/assets/onboarding "$RESOURCES_DIR/assets/"
 fi
 
-cat > "$STAGE_ROOT/Install PARW.command" <<'INSTALLER'
+cat > "$STAGE_ROOT/Install PRAW.command" <<'INSTALLER'
 #!/bin/bash
 cd "$(dirname "$0")"
-echo "Removing the macOS quarantine flag from PARW.app..."
-xattr -dr com.apple.quarantine "PARW.app" 2>/dev/null || sudo xattr -dr com.apple.quarantine "PARW.app"
-echo "Starting PARW (backend starts automatically with the app)..."
-open "PARW.app"
-echo "Done. PARW is in your Applications folder if you copied it there."
+echo "Removing the macOS quarantine flag from PRAW.app..."
+xattr -dr com.apple.quarantine "PRAW.app" 2>/dev/null || sudo xattr -dr com.apple.quarantine "PRAW.app"
+echo "Starting PRAW (backend starts automatically with the app)..."
+open "PRAW.app"
+echo "Done. PRAW is in your Applications folder if you copied it there."
 INSTALLER
-chmod +x "$STAGE_ROOT/Install PARW.command"
+chmod +x "$STAGE_ROOT/Install PRAW.command"
 
 cat > "$STAGE_ROOT/README.txt" <<'README'
-PARW — self-hosted build
+PRAW — self-hosted build
 ========================
 
 Everything here talks only to your machine: the agent backend (bundled with
-PARW.app) and whatever LLM endpoint you point it at. No Warp cloud services,
+PRAW.app) and whatever LLM endpoint you point it at. No Warp cloud services,
 no telemetry, no crash reporting, no autoupdate.
 
 Quick start (macOS, Apple Silicon or Intel):
-  1. Drag PARW.app into /Applications (or keep it anywhere).
+  1. Drag PRAW.app into /Applications (or keep it anywhere).
   2. Because the build is unsigned, clear the quarantine flag after transfer:
-         xattr -dr com.apple.quarantine /Applications/PARW.app
-     or double-click "Install PARW.command" next to the app.
-  3. Open PARW. It starts its own agent backend automatically.
+         xattr -dr com.apple.quarantine /Applications/PRAW.app
+     or double-click "Install PRAW.command" next to the app.
+  3. Open PRAW. It starts its own agent backend automatically.
   4. Type a prompt prefixed with "#" to use the agent.
 
 LLM backends (autodetected in order):
@@ -146,7 +162,7 @@ LLM backends (autodetected in order):
   - LM Studio  http://127.0.0.1:1234
   - MLX-LM     http://127.0.0.1:8080
 Detected models appear in Warp's model picker. Force one with
-  PARW.app/Contents/MacOS/selfhost_server --llm-backend ollama
+  PRAW.app/Contents/MacOS/selfhost_server --llm-backend ollama
 or point at any OpenAI-compatible endpoint with --llm-base-url.
 
 Cloud providers (optional):
@@ -156,9 +172,9 @@ Cloud providers (optional):
   --provider zai|opencode|xai|openai|anthropic|google|openrouter  with --<name>-api-key
 
 Also in this folder:
-  bin/warp-tui-oss     terminal UI front-end
+  bin/PRAW-tui     terminal UI front-end
   The backend serves /healthz and /metrics on 127.0.0.1:8080
-  (backend log: ~/Library/Logs/PARW-backend.log).
+  (backend log: ~/Library/Logs/PRAW-backend.log).
 
 Notes:
   - The backend listens on loopback only. If you expose it to your network,
@@ -173,14 +189,14 @@ README
 # ── Sign + zip + DMG ────────────────────────────────────────────────────────
 codesign --force --deep -s - "$APP" 2>/dev/null || true
 codesign --force -s - "$STAGE_ROOT/bin/selfhost_server" 2>/dev/null || true
-codesign --force -s - "$STAGE_ROOT/bin/warp-tui-oss" 2>/dev/null || true
+codesign --force -s - "$STAGE_ROOT/bin/PRAW-tui" 2>/dev/null || true
 
-(cd dist && zip -qr "PARW-macos-universal.zip" "PARW-macos-universal")
+(cd dist && zip -qr "PRAW-macos-universal.zip" "PRAW-macos-universal")
 
-hdiutil create -volname PARW -srcfolder "$STAGE_ROOT" -ov -format UDZO \
-    "dist/PARW-macos-universal.dmg" >/dev/null
+hdiutil create -volname PRAW -srcfolder "$STAGE_ROOT" -ov -format UDZO \
+    "dist/PRAW-macos-universal.dmg" >/dev/null
 
 echo
-echo "Packaged: dist/PARW-macos-universal.zip"
-echo "DMG:      dist/PARW-macos-universal.dmg"
+echo "Packaged: dist/PRAW-macos-universal.zip"
+echo "DMG:      dist/PRAW-macos-universal.dmg"
 echo "Folder:   $STAGE_ROOT"
