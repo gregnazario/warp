@@ -42,20 +42,8 @@ async fn selfhost_get_user_response_decodes_with_the_client_schema() {
 
 fn test_config() -> selfhost_server::Config {
     selfhost_server::Config {
-        llm_base_url: String::new(),
-        llm_api_key: None,
-        llm_schema: selfhost_server::config::LlmSchema::Openai,
         llm_model: Some("test-model".to_owned()),
-        llm_models: Vec::new(),
-        api_key: None,
-        system_prompt: None,
-        context_window_tokens: 0,
-        web_search_url: None,
-        byok_direct: false,
-        auth_introspect_url: None,
-        transcribe_base_url: None,
-        transcribe_api_key: None,
-        transcribe_model: "whisper-1".to_owned(),
+        ..Default::default()
     }
 }
 

@@ -108,6 +108,46 @@ pub struct Config {
     pub auth_introspect_url: Option<String>,
 }
 
+impl Default for Config {
+    /// Mirrors the server's own fallbacks: the Ollama endpoint, OpenAI
+    /// schema, and the CLI defaults for the fixed-value options.
+    fn default() -> Self {
+        Self {
+            llm_base_url: "http://127.0.0.1:11434/v1".to_owned(),
+            llm_api_key: None,
+            llm_schema: LlmSchema::Openai,
+            llm_model: None,
+            api_key: None,
+            system_prompt: None,
+            transcribe_base_url: None,
+            transcribe_api_key: None,
+            transcribe_model: "whisper-1".to_owned(),
+            llm_models: Vec::new(),
+            context_window_tokens: 0,
+            web_search_url: None,
+            byok_direct: false,
+            provider: None,
+            openai_api_key: None,
+            anthropic_api_key: None,
+            google_api_key: None,
+            xai_api_key: None,
+            zai_api_key: None,
+            opencode_api_key: None,
+            azure_tenant: None,
+            azure_client_id: None,
+            azure_client_secret: None,
+            azure_foundry_url: None,
+            azure_api_version: "2024-05-01-preview".to_owned(),
+            vertex_enabled: false,
+            codex_token_file: crate::codex::default_token_file(),
+            vertex_base_url: "https://aiplatform.googleapis.com/v1beta1/publishers/google/models"
+                .to_owned(),
+            vertex_adc_path: None,
+            auth_introspect_url: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmSchema {
     Openai,

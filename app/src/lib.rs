@@ -233,7 +233,6 @@ use warp_errors::{report_error, report_if_error};
 #[cfg(feature = "local_fs")]
 use warp_files::FileModel;
 use warp_logging::{LogDestination, LogFrontend};
-use warp_managed_secrets::ManagedSecretManager;
 use warp_server_client::iap::{IapManager, IapManagerEvent, IapState, ManagedIapMint};
 use warp_server_client::network_logging::NetworkLogModel;
 use warpui::integration::TestDriver;
@@ -299,13 +298,16 @@ use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::experiments::ServerExperiments;
 #[cfg(not(target_family = "wasm"))]
 use crate::server::iap_identity_minter::ManagedSecretsIapMinter;
+use crate::server::server_api::managed_secrets::AppManagedSecretManager as ManagedSecretManager;
 use crate::server::sync_queue::{QueueItem, SyncQueue};
 pub use crate::server::telemetry::{
     AgentModeEntrypoint, AgentModeEntrypointSelectionType, TelemetryEvent,
 };
 use crate::server::telemetry::{AppStartupInfo, CloseTarget, PaletteSource, TelemetryCollector};
 use crate::session_management::{RunningSessionSummary, SessionNavigationData};
-use crate::settings::cloud_preferences_syncer::initialize_cloud_preferences_syncer;
+use crate::settings::cloud_preferences_syncer::{
+    CloudPreferencesSyncerEvent, initialize_cloud_preferences_syncer,
+};
 use crate::settings::manager::SettingsManager;
 use crate::settings::{AISettings, AccessibilitySettings, ScrollSettings, SelectionSettings};
 use crate::settings_view::DisplayCount;
@@ -2278,6 +2280,9 @@ pub(crate) fn initialize_app(
         ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel::new,
     );
     ctx.add_singleton_model(
+        ai::blocklist::pending_cli_harness_prompt_queue::PendingCliHarnessPromptQueue::new,
+    );
+    ctx.add_singleton_model(
         ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer::new,
     );
 
@@ -2320,12 +2325,17 @@ pub(crate) fn initialize_app(
     });
 
     let toml_file_path = settings::user_preferences_toml_file_path();
-    ctx.add_singleton_model(move |ctx| {
+    let cloud_preferences_syncer = ctx.add_singleton_model(move |ctx| {
         initialize_cloud_preferences_syncer(
             toml_file_path,
             startup_toml_parse_error_for_syncer.as_deref(),
             ctx,
         )
+    });
+    ctx.subscribe_to_model(&cloud_preferences_syncer, |_, event, ctx| {
+        if let CloudPreferencesSyncerEvent::InitialLoadCompleted = event {
+            window_settings::migrate_legacy_background_backdrop(ctx);
+        }
     });
     ai::custom_endpoints::init(launch_mode, ctx);
 

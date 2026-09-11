@@ -338,11 +338,14 @@ enum AgentTaskState {
 
 """Status message for an agent task."""
 type AgentTaskStatusMessage {
+  """Structured platform error information, when the status represents an error."""
+  error: PlatformErrorInfo
   """
   Machine-readable error code from the platform error catalog.
   Only present when the status message represents an error.
+  Deprecated in favor of error.
   """
-  errorCode: PlatformErrorCode
+  errorCode: PlatformErrorCode @deprecated(reason: "Use error instead")
 
   """The status message text."""
   message: String!
@@ -354,19 +357,22 @@ type AgentTaskStatusMessage {
   retrying without addressing the underlying cause (e.g. insufficient credits,
   invalid configuration) will not succeed.
   """
-  retryable: Boolean
+  retryable: Boolean @deprecated(reason: "Use error.retryable instead")
 }
 
 input AgentTaskStatusMessageInput {
+  """Structured platform error information supplied by the client."""
+  error: PlatformErrorInput
   """
   Machine-readable error code from the platform error catalog.
   Only set when the status message represents an error.
-  The server derives retryability from the error code.
+  Deprecated in favor of error.
   """
-  errorCode: PlatformErrorCode
+  errorCode: PlatformErrorCode @deprecated(reason: "Use error instead")
 
   """The status message text."""
   message: String!
+
 }
 
 enum AgentVisibility {
@@ -1981,6 +1987,16 @@ type IssueTaskIdentityTokenOutput implements Response {
 }
 
 union IssueTaskIdentityTokenResult = IssueTaskIdentityTokenOutput | UserFacingError
+input JoinTeamInWorkspaceInput {
+  teamUid: ID!
+}
+
+type JoinTeamInWorkspaceOutput implements Response {
+  responseContext: ResponseContext!
+  success: Boolean!
+}
+
+union JoinTeamInWorkspaceResult = JoinTeamInWorkspaceOutput | UserFacingError
 
 input JoinTeamWithTeamDiscoveryInput {
   entrypoint: TeamDiscoveryEntrypoint!
@@ -2849,6 +2865,18 @@ type RemoveUserFromTeamOutput implements Response {
 }
 
 union RemoveUserFromTeamResult = RemoveUserFromTeamOutput | UserFacingError
+input RemoveUserFromWorkspaceInput {
+  entrypoint: CloudObjectEventEntrypoint!
+  userUid: ID!
+  workspaceUid: ID!
+}
+
+type RemoveUserFromWorkspaceOutput implements Response {
+  responseContext: ResponseContext!
+  success: Boolean!
+}
+
+union RemoveUserFromWorkspaceResult = RemoveUserFromWorkspaceOutput | UserFacingError
 
 input RenameTeamInput {
   newName: String!
@@ -3157,6 +3185,7 @@ type RootMutation {
   giveUpNotebookEditAccess(input: UpdateNotebookEditAccessInput!, requestContext: RequestContext!): UpdateNotebookEditAccessResult!
   grabNotebookEditAccess(input: UpdateNotebookEditAccessInput!, requestContext: RequestContext!): UpdateNotebookEditAccessResult!
   issueTaskIdentityToken(input: IssueTaskIdentityTokenInput!, requestContext: RequestContext!): IssueTaskIdentityTokenResult!
+  joinTeamInWorkspace(input: JoinTeamInWorkspaceInput!, requestContext: RequestContext!): JoinTeamInWorkspaceResult!
   joinTeamWithTeamDiscovery(input: JoinTeamWithTeamDiscoveryInput!, requestContext: RequestContext!): JoinTeamWithTeamDiscoveryResult!
 
   """The API for leaving an object as a direct guest or link-shared."""
@@ -3179,6 +3208,7 @@ type RootMutation {
   in v2. Usage of the `leaveTeam` mutation in v1 will eventually be removed.
   """
   removeUserFromTeam(input: RemoveUserFromTeamInput!, requestContext: RequestContext!): RemoveUserFromTeamResult!
+  removeUserFromWorkspace(input: RemoveUserFromWorkspaceInput!, requestContext: RequestContext!): RemoveUserFromWorkspaceResult!
   renameTeam(input: RenameTeamInput!, requestContext: RequestContext!): RenameTeamResult!
   resetInviteLinks(input: ResetInviteLinksInput!, requestContext: RequestContext!): ResetInviteLinksResult!
   sendOnboardingSurveyResponses(input: SendOnboardingSurveyResponsesInput!, requestContext: RequestContext!): SendOnboardingSurveyResponsesResult!
@@ -3260,6 +3290,13 @@ type RootQuery {
 
   """Retrieve execution history for a scheduled agent."""
   scheduledAgentHistory(input: ScheduledAgentHistoryInput!, requestContext: RequestContext!): ScheduledAgentHistoryResult!
+
+  """
+  Authorizes a REMOTE-2661 debug agent prompt against a retained environment-setup-failure
+  session. Requires a workload token scoped to the run, so only the sandbox itself (not an
+  arbitrary caller) can invoke it.
+  """
+  setupFailureDebugAuthorization(input: SetupFailureDebugAuthorizationInput!, requestContext: RequestContext!): SetupFailureDebugAuthorizationResult!
   simpleIntegrations(input: SimpleIntegrationsInput!, requestContext: RequestContext!): SimpleIntegrationsResult!
   suggestCloudEnvironmentImage(input: SuggestCloudEnvironmentImageInput!, requestContext: RequestContext!): SuggestCloudEnvironmentImageResult!
 
@@ -3489,6 +3526,25 @@ type SetTeamMemberRoleOutput implements Response {
 }
 
 union SetTeamMemberRoleResult = SetTeamMemberRoleOutput | UserFacingError
+
+"""
+Authorizes a REMOTE-2661 debug agent prompt against a retained environment-setup-failure
+session. Called by the sharer (the retained agent process) with its own workload token to
+verify a no-token prompt's originating participant before honoring it, since the sharer's
+local task-eligibility view cannot authenticate who is actually asking.
+"""
+input SetupFailureDebugAuthorizationInput {
+  participantFirebaseUid: String!
+  taskId: ID!
+  workloadToken: String!
+}
+
+type SetupFailureDebugAuthorizationOutput implements Response {
+  authorized: Boolean!
+  responseContext: ResponseContext!
+}
+
+union SetupFailureDebugAuthorizationResult = SetupFailureDebugAuthorizationOutput | UserFacingError
 
 type SetUserIsOnboardedOutput implements Response {
   responseContext: ResponseContext!
@@ -4218,6 +4274,14 @@ input UpdateAgentTaskInput {
   conversationId: ID
 
   """
+  True while a REMOTE-2661 debug turn is actively pinning the post-failure debug window's idle
+  timer; false once the turn ends and the timer re-arms. Display-only, and deliberately separate
+  from statusMessage and sessionDebugUntil for the same reason: a pin/unpin update must not
+  overwrite the failure text or move the deadline.
+  """
+  debugAgentActive: Boolean
+
+  """
   When a failed run's shared session stops being held open for debugging.
   
   The agent process owns that window and reports this on arm and on each refresh, so the
@@ -4633,6 +4697,35 @@ type UserFacingError implements Response {
   responseContext: ResponseContext!
 }
 
+type PlatformError implements UserFacingErrorInterface {
+  detail: String
+  info: PlatformErrorInfo!
+  message: String!
+}
+
+type PlatformErrorInfo {
+  code: PlatformErrorCode!
+  debug: String
+  metadata: [PlatformErrorMetadata!]!
+  retryable: Boolean!
+}
+input PlatformErrorInput {
+  code: PlatformErrorCode!
+  debug: String
+  metadata: [PlatformErrorMetadataInput!]!
+  retryable: Boolean!
+}
+
+type PlatformErrorMetadata {
+  key: String!
+  value: String!
+}
+
+input PlatformErrorMetadataInput {
+  key: String!
+  value: String!
+}
+
 """
 `UserFacingErrorInterface` is what all the expected error types that are returned in
 mutations should implement. This gives us a baseline default schema that clients can
@@ -4791,6 +4884,7 @@ type Workspace {
   memberSpendLimits: [MemberSpendLimit!]
   members: [WorkspaceMember!]!
   name: String!
+  openTeams: [DiscoverableTeamData!]!
   pendingEmailInvites: [EmailInvite!]!
 
   """
