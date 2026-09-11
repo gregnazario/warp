@@ -25,8 +25,10 @@ concurrency:
 jobs:
   build:
     runs-on: macos-14 # Apple Silicon (M1)
-    # Cold builds normally finish in about 95 minutes; stop a hung build.
-    timeout-minutes: 120
+    # Heavy merges can push the build past 100 minutes; the margin matters
+    # because a timeout during "Publish release" would cut a finished build
+    # off from its release.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
         with:
