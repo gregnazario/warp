@@ -539,7 +539,7 @@ impl Config {
 }
 
 /// Default location of gcloud's application-default credentials.
-fn default_adc_path() -> String {
+pub fn default_adc_path() -> String {
     if let Ok(appdata) = std::env::var("APPDATA") {
         return format!("{appdata}\\gcloud\\application_default_credentials.json");
     }

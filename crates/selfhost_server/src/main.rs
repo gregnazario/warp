@@ -152,6 +152,11 @@ struct Args {
     vertex_base_url: String,
     #[arg(long)]
     vertex_adc_path: Option<String>,
+
+    /// Print diagnostics (local backends, configured providers, port) and
+    /// exit without serving.
+    #[arg(long, default_value_t = false)]
+    doctor: bool,
 }
 
 impl Args {
@@ -327,6 +332,10 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+    if args.doctor {
+        doctor(&args).await;
+        return Ok(());
+    }
     let bind_addr: SocketAddr = args
         .bind
         .parse()
@@ -340,4 +349,150 @@ async fn main() -> Result<()> {
     tracing::info!("self-hosted agent server listening on http://{bind_addr}");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// One-stop diagnostics for "why doesn't agent mode work": which local LLM
+/// backends answer, which provider integrations are configured, and whether
+/// the server can take its port. Informational only — always exits 0.
+async fn doctor(args: &Args) {
+    println!("PRAW backend doctor (v{})", env!("CARGO_PKG_VERSION"));
+
+    println!("\nLocal LLM backends:");
+    let http = reqwest::Client::new();
+    for target in detect::default_targets() {
+        match detect::probe(&http, &target).await {
+            Ok(found) => {
+                let models = if found.models.is_empty() {
+                    String::from("no models")
+                } else {
+                    format!(
+                        "{} model(s): {}",
+                        found.models.len(),
+                        found.models.join(", ")
+                    )
+                };
+                println!("  ok  {} at {} — {models}", found.backend, found.base_url);
+            }
+            Err(_) => {
+                println!(
+                    "  --  {} at {} — not responding",
+                    target.backend, target.base_url
+                );
+            }
+        }
+    }
+    if args.llm_base_url.is_some() {
+        println!("  ok  custom endpoint via --llm-base-url (autodetect skipped)");
+    }
+
+    println!("\nProviders:");
+    if let Some(provider) = &args.provider {
+        println!("  ok  --provider {provider} (forced)");
+    } else {
+        println!("  --  --provider not forced; BYOK model-name routing decides per request");
+    }
+    for (name, key) in [
+        ("openai", &args.openai_api_key),
+        ("anthropic", &args.anthropic_api_key),
+        ("google", &args.google_api_key),
+        ("xai", &args.xai_api_key),
+        ("zai", &args.zai_api_key),
+        ("opencode", &args.opencode_api_key),
+    ] {
+        match key.as_deref().filter(|key| !key.is_empty()) {
+            Some(key) => println!("  ok  {name} key set ({})", mask_key(key)),
+            None => println!("  --  {name} key not set"),
+        }
+    }
+    let azure_ready = args.azure_tenant.is_some()
+        && args.azure_client_id.is_some()
+        && args.azure_client_secret.is_some()
+        && args.azure_foundry_url.is_some();
+    println!(
+        "  {}  azure-foundry {}",
+        if azure_ready { "ok" } else { "--" },
+        if azure_ready {
+            format!(
+                "tenant {} configured",
+                args.azure_tenant.as_deref().unwrap_or_default()
+            )
+        } else {
+            String::from(
+                "needs --azure-tenant/--azure-client-id/--azure-client-secret/--azure-foundry-url",
+            )
+        }
+    );
+    if args.vertex {
+        let adc = args
+            .vertex_adc_path
+            .clone()
+            .unwrap_or_else(selfhost_server::config::default_adc_path);
+        let exists = std::path::Path::new(&adc).is_file();
+        println!(
+            "  {}  vertex (application-default credentials at {adc})",
+            if exists { "ok" } else { "!!" }
+        );
+    } else {
+        println!("  --  vertex disabled (pass --vertex to enable)");
+    }
+    let codex_tokens = selfhost_server::codex::default_token_file();
+    println!(
+        "  {}  chatgpt/codex tokens at {codex_tokens}",
+        if std::path::Path::new(&codex_tokens).is_file() {
+            "ok"
+        } else {
+            "--"
+        }
+    );
+
+    println!("\nServer:");
+    println!("  --  bind address {}", args.bind);
+    let bind_check: SocketAddr = args
+        .bind
+        .parse()
+        .unwrap_or_else(|_| "127.0.0.1:8080".parse().expect("valid socket address"));
+    match std::net::TcpListener::bind(bind_check) {
+        Ok(_listener) => println!("  ok  port is free"),
+        Err(error) => println!("  !!  port unavailable: {error}"),
+    }
+    println!(
+        "  {}  client auth: {}",
+        if args.api_key.is_some() { "ok" } else { "--" },
+        if args.api_key.is_some() {
+            String::from("--api-key required from clients")
+        } else {
+            String::from("open — any client token accepted (fine on loopback)")
+        }
+    );
+    println!(
+        "  {}  web search: {}",
+        if args.web_search_url.is_some() {
+            "ok"
+        } else {
+            "--"
+        },
+        args.web_search_url
+            .as_deref()
+            .unwrap_or("not configured (--web-search-url)")
+    );
+    println!(
+        "  {}  transcription: {}",
+        if args.transcribe_base_url.is_some() {
+            "ok"
+        } else {
+            "--"
+        },
+        args.transcribe_base_url
+            .as_deref()
+            .unwrap_or("not configured (--transcribe-base-url)")
+    );
+}
+
+/// Enough of a key to recognize it, not enough to leak it.
+fn mask_key(key: &str) -> String {
+    if key.len() <= 8 {
+        String::from("…")
+    } else {
+        format!("…{}", &key[key.len() - 4..])
+    }
 }

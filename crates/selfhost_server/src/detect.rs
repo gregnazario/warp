@@ -56,7 +56,7 @@ pub async fn detect(http: &reqwest::Client, targets: &[ProbeTarget]) -> Option<D
     None
 }
 
-async fn probe(http: &reqwest::Client, target: &ProbeTarget) -> Result<DetectedBackend> {
+pub async fn probe(http: &reqwest::Client, target: &ProbeTarget) -> Result<DetectedBackend> {
     let models_url = format!("{}/v1/models", target.base_url.trim_end_matches('/'));
     let response = http
         .get(&models_url)

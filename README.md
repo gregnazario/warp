@@ -1,112 +1,130 @@
-<a href="https://www.warp.dev">
-    <img width="1024" alt="Warp Agentic Development Environment product preview" src="https://github.com/user-attachments/assets/9976b2da-2edd-4604-a36c-8fd53719c6d4" />
-</a>
-&nbsp;
-<p align="center">
-  <a href="https://www.warp.dev"><img height="20" alt="Built with Warp" src="https://raw.githubusercontent.com/warpdotdev/brand-assets/main/Github/Built-With-Warp-Export@2x.png" /></a>
-  &nbsp;
-  <a href="https://oz.warp.dev"><img height="20" alt="Powered by Oz" src="https://raw.githubusercontent.com/warpdotdev/brand-assets/main/Github/Powered-By-Oz-Export@2x.png" /></a>
-</p>
+<h1 align="center">PRAW</h1>
 
 <p align="center">
-  <a href="https://www.warp.dev">Website</a>
-  ·
-  <a href="https://www.warp.dev/code">Code</a>
-  ·
-  <a href="https://www.warp.dev/agents">Agents</a>
-  ·
-  <a href="https://www.warp.dev/terminal">Terminal</a>
-  ·
-  <a href="https://www.warp.dev/drive">Drive</a>
-  ·
-  <a href="https://docs.warp.dev">Docs</a>
-  ·
-  <a href="https://www.warp.dev/blog/how-warp-works">How Warp Works</a>
+  <strong>The agent terminal that answers only to you.</strong><br/>
+  A fork of <a href="https://github.com/warpdotdev/warp">Warp</a> in which every
+  AI agent call stays on hardware you control — a server you run, or just your
+  own machine. No Warp account, no subscription, no Warp-operated services.
 </p>
 
-> [!NOTE]
-> OpenAI is the founding sponsor of the new, open-source Warp repository, and the new agentic management workflows are powered by GPT models.
+---
 
-<h1></h1>
+## What this is
 
-## About
+PRAW (roughly "warp" spelled backwards) keeps Warp's agent experience but
+replaces Warp's cloud with a self-hosted backend that ships in this repo
+(`crates/selfhost_server`). In self-hosted mode the client:
 
-[Warp](https://www.warp.dev) is an agentic development environment, born out of the terminal. Use Warp's built-in coding agent, or bring your own CLI agent (Claude Code, Codex, Gemini CLI, and others).
+- talks **only** to the server you point it at (`WARP_SELF_HOSTED_SERVER_URL`);
+- requires **no login** — a local identity is synthesized for you;
+- has **no credit or subscription gates** — bring your own model or key;
+- disables Warp telemetry, crash reporting, and autoupdate.
 
-## Installation
+The backend implements the slice of Warp's server API that Agent Mode needs:
+the multi-agent wire protocol (translated to OpenAI- or Anthropic-compatible
+LLM endpoints), the GraphQL operations the client polls, transcription, and
+web search. The agent loop itself stays client-executed, exactly as in
+upstream.
 
-You can [download Warp](https://www.warp.dev/download) and [read our docs](https://docs.warp.dev/) for platform-specific instructions.
+## Install (macOS)
 
-## Warp Contributions Overview Dashboard
+Grab `PRAW-macos-universal.dmg` from the
+[releases page](https://github.com/gregnazario/warp/releases), open it, and
+drag **PRAW.app** to Applications.
 
-Explore [build.warp.dev](https://build.warp.dev) to:
-- Watch thousands of Oz agents triage issues, write specs, implement changes, and review PRs
-- View top contributors and in-flight features
-- Track your own issues with GitHub sign-in
-- Click into active agent sessions in a web-compiled Warp terminal
+The build is unsigned, so clear the quarantine flag once after transfer:
 
-## Oz for OSS
-
-Maintaining a popular open-source project? [Apply for Oz credits](https://tally.so/r/LZWxqG) to explore [Oz for OSS](https://github.com/warpdotdev/oz-for-oss).
-
-Oz for OSS is our partner program for bringing the same agentic open-source management workflows used in this repository to select partner repositories. We work directly with maintainers to implement workflows for issue triage, PR review, community management, and contributor coordination in a way that fits each project.
-
-## Licensing
-
-Warp's UI framework (the `warpui_core` and `warpui` crates) are licensed under the [MIT license](LICENSE-MIT).
-
-The rest of the code in this repository is licensed under the [AGPL v3](LICENSE-AGPL).
-
-## Open Source & Contributing
-
-Warp's client codebase is open source and lives in this repository. We welcome community contributions and have designed a lightweight workflow to help new contributors get started. For the full contribution flow, read our [CONTRIBUTING.md](CONTRIBUTING.md) guide.
-
-> [!TIP]
-> **Chat with contributors and the Warp team** in the [`#oss-contributors`](https://warpcommunity.slack.com/archives/C0B0LM8N4DB) Slack channel — a good place for ad-hoc questions, design discussion, and pairing with maintainers. New here? [Join the Warp Slack community](https://go.warp.dev/join-preview) first, then jump into `#oss-contributors`.
-
-### Issue to PR
-
-Before filing, [search existing issues](https://github.com/warpdotdev/warp/issues?q=is%3Aissue+is%3Aopen+sort%3Areactions-%2B1-desc) for your bug or feature request. If nothing exists, [file an issue](https://github.com/warpdotdev/warp/issues/new/choose) using our templates. Security vulnerabilities should be reported privately as described in [CONTRIBUTING.md](CONTRIBUTING.md#reporting-security-issues).
-
-Once filed, a Warp maintainer reviews the issue and may apply a readiness label: [`ready-to-spec`](https://github.com/warpdotdev/warp/issues?q=is%3Aissue+is%3Aopen+label%3Aready-to-spec) signals the design is open for contributors to spec out, and [`ready-to-implement`](https://github.com/warpdotdev/warp/issues?q=is%3Aissue+is%3Aopen+label%3Aready-to-implement) signals the design is settled and code PRs are welcome. Anyone can pick up a labeled issue — mention **@oss-maintainers** on an issue if you'd like it considered for a readiness label.
-
-### Building the Repo Locally
-
-To build and run Warp from source:
-
-```bash
-./script/bootstrap   # platform-specific setup
-./script/run         # build and run Warp
-./script/presubmit   # fmt, clippy, and tests
+```sh
+xattr -dr com.apple.quarantine /Applications/PRAW.app
 ```
 
-See [AGENTS.md](AGENTS.md) for the full engineering guide, including coding style, testing, and platform-specific notes.
+or double-click **Install PRAW.command** next to the app in the DMG.
 
-## Joining the Team
+Opening PRAW starts the bundled backend automatically (loopback only; the
+app-internal port is 48080 to dodge the busy 8080). Detected models show up
+in the model picker; type a prompt prefixed with `#` to use the agent. The
+backend log lives at `~/Library/Logs/PRAW-backend.log`.
 
-Interested in joining the team? See our [open roles](https://www.warp.dev/careers).
+## LLM backends
 
-## Support and Questions
+Autodetected in order:
 
-1. See our [docs](https://docs.warp.dev/) for a comprehensive guide to Warp's features.
-2. Join our [Slack Community](https://go.warp.dev/join-preview) to connect with other users and get help from the Warp team — contributors hang out in [`#oss-contributors`](https://warpcommunity.slack.com/archives/C0B0LM8N4DB).
-3. Try our [Preview build](https://www.warp.dev/download-preview) to test the latest experimental features.
-4. Mention **@oss-maintainers** on any issue to escalate to the team — for example, if you encounter problems with the automated agents.
+| Backend   | Endpoint                  |
+| --------- | ------------------------- |
+| Ollama    | `http://127.0.0.1:11434`  |
+| LM Studio | `http://127.0.0.1:1234`   |
+| MLX-LM    | `http://127.0.0.1:8080`   |
 
-## Code of Conduct
+Point at any OpenAI- or Anthropic-compatible endpoint with `--llm-base-url`,
+force a backend with `--llm-backend ollama|lmstudio|mlx`, pin the catalog with
+`--llm-models`, or set a context-window budget with `--context-window-tokens`.
 
-We ask everyone to be respectful and empathetic. Warp follows the [Code of Conduct](CODE_OF_CONDUCT.md). To report violations, email warp-coc at warp.dev.
+## Cloud providers (BYOK)
 
-## Open Source Dependencies
+Run the backend with `--provider <name>` and the matching key. Requests that
+carry a client BYO key are also routed natively by model name:
 
-We'd like to call out a few of the [open source dependencies](https://docs.warp.dev/help/licenses) that have helped Warp to get off the ground:
+| Provider      | Key flag / setup                                         |
+| ------------- | -------------------------------------------------------- |
+| OpenAI        | `--openai-api-key`                                       |
+| Anthropic     | `--anthropic-api-key`                                    |
+| Google        | `--google-api-key`                                       |
+| xAI           | `--xai-api-key`                                          |
+| Z.ai          | `--zai-api-key` (coding-plan endpoint)                   |
+| OpenCode Zen  | `--opencode-api-key` (required headers sent by default)  |
+| ChatGPT/Codex | `--codex-login` once, then `--provider chatgpt`          |
+| Azure Foundry | `--azure-tenant/--azure-client-id/--azure-client-secret/--azure-foundry-url` |
+| Google Vertex | `--vertex` after `gcloud auth application-default login` |
 
-- [Tokio](https://github.com/tokio-rs/tokio)
-- [NuShell](https://github.com/nushell/nushell)
-- [Fig Completion Specs](https://github.com/withfig/autocomplete)
-- [Warp Server Framework](https://github.com/seanmonstar/warp)
-- [Alacritty](https://github.com/alacritty/alacritty)
-- [Hyper HTTP library](https://github.com/hyperium/hyper)
-- [FontKit](https://github.com/servo/font-kit)
-- [Core-foundation](https://github.com/servo/core-foundation-rs)
-- [Smol](https://github.com/smol-rs/smol)
+See `crates/selfhost_server/README.md` for the full flag reference.
+
+## Running the pieces yourself
+
+```sh
+# Terminal 1: the agent backend (defaults to a local Ollama)
+cargo run -p selfhost_server
+
+# Terminal 2: the GUI, pointed at it
+WARP_SELF_HOSTED_SERVER_URL=http://127.0.0.1:8080 cargo run
+
+# Or the headless TUI
+WARP_SELF_HOSTED_SERVER_URL=http://127.0.0.1:8080 ./script/run-tui
+```
+
+`WARP_API_KEY` supplies the client credential (any value works unless the
+server is started with `--api-key`). Server-side web search needs a SearXNG
+endpoint (`--web-search-url`); voice transcription needs an OpenAI-compatible
+STT endpoint (`--transcribe-base-url`).
+
+Troubleshooting starts with:
+
+```sh
+selfhost_server --doctor   # backends, keys, ports — what's working and what isn't
+```
+
+## Building a package
+
+```sh
+./script/bootstrap          # toolchain + deps
+./script/selfhost-package   # release binaries + PRAW.app + DMG/zip in dist/
+```
+
+The packaging script stamps the version from the latest `parw-v*` tag,
+builds fat arm64+x86_64 binaries when the Intel target is installed, and
+decorates the DMG (background, icon layout, Applications link). The release
+workflow (`.github/workflows/parw-release.yml`) does the same on a `parw-v*`
+tag push.
+
+## Relationship to upstream
+
+This fork intentionally stays close to `warpdotdev/warp` so upstream changes
+can be merged. The deltas are deliberately contained:
+
+- `crates/selfhost_server/` — the self-hosted backend (new crate)
+- `app/src/lib.rs` — self-hosted environment opt-in (`apply_self_hosted_env_override`)
+- `app/src/auth/` — local sign-in synthesis; `app/src/ai/` — credit-gate removal
+- `app/src/bin/oss.rs`, `resources/parw/` — PRAW identity and icon
+- `script/selfhost-package`, `.github/workflows/parw-release.yml` — packaging
+
+Everything else is upstream Warp. Licensed under AGPL-3.0, like upstream
+(see `LICENSE-AGPL`; parts of the tree are MIT — see `LICENSE-MIT`).

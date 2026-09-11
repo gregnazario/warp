@@ -23,6 +23,17 @@ PLIST="$APP/Contents/Info.plist"
 MACOS_DIR="$APP/Contents/MacOS"
 RESOURCES_DIR="$APP/Contents/Resources"
 ICON_SRC="resources/parw/icon_1024.png"
+DMG_BACKGROUND="resources/parw/dmg_background.png"
+
+# Version shown in Finder/About (overridable for local test builds).
+VERSION="${PARW_VERSION:-$(git describe --tags --match 'parw-v*' --abbrev=0 2>/dev/null | sed 's/^parw-v//')}"
+VERSION="${VERSION:-selfhost-dev}"
+
+# The app-internal backend port. 8080 is the most collision-prone dev port
+# (and MLX-LM's default), so the bundled pair uses an uncommon one; the
+# launcher's default and this URL must agree. Manual `selfhost_server` runs
+# still default to 8080.
+BACKEND_PORT=48080
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
     cargo build --release -p warp --bin warp-oss
@@ -111,15 +122,15 @@ cat > "$PLIST" <<PLIST
     <key>CFBundleIdentifier</key><string>dev.parw.PRAW</string>
     <key>CFBundleName</key><string>PRAW</string>
     <key>CFBundleDisplayName</key><string>PRAW</string>
-    <key>CFBundleShortVersionString</key><string>selfhost</string>
-    <key>CFBundleVersion</key><string>0.1.0</string>
+    <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+    <key>CFBundleVersion</key><string>${VERSION}</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSMinimumSystemVersion</key><string>11.0</string>
     ${ICON_KEY:-}
     <key>LSEnvironment</key>
     <dict>
         <key>WARP_SELF_HOSTED_SERVER_URL</key>
-        <string>http://127.0.0.1:8080</string>
+        <string>http://127.0.0.1:${BACKEND_PORT}</string>
     </dict>
 </dict>
 </plist>
@@ -141,13 +152,13 @@ echo "Done. PRAW is in your Applications folder if you copied it there."
 INSTALLER
 chmod +x "$STAGE_ROOT/Install PRAW.command"
 
-cat > "$STAGE_ROOT/README.txt" <<'README'
-PRAW — self-hosted build
-========================
+cat > "$STAGE_ROOT/README.txt" <<README
+PRAW ${VERSION} — self-hosted build
+===================================
 
 Everything here talks only to your machine: the agent backend (bundled with
 PRAW.app) and whatever LLM endpoint you point it at. No Warp cloud services,
-no telemetry, no crash reporting, no autoupdate.
+no telemetry, no crash reporting, no autoupdate. No login, no subscription.
 
 Quick start (macOS, Apple Silicon or Intel):
   1. Drag PRAW.app into /Applications (or keep it anywhere).
@@ -161,9 +172,10 @@ LLM backends (autodetected in order):
   - Ollama     http://127.0.0.1:11434
   - LM Studio  http://127.0.0.1:1234
   - MLX-LM     http://127.0.0.1:8080
-Detected models appear in Warp's model picker. Force one with
+Detected models appear in the model picker. Force one with
   PRAW.app/Contents/MacOS/selfhost_server --llm-backend ollama
 or point at any OpenAI-compatible endpoint with --llm-base-url.
+Run .../selfhost_server --doctor to check detection, keys, and ports.
 
 Cloud providers (optional):
   --provider chatgpt         first run --codex-login to sign in with ChatGPT
@@ -173,15 +185,16 @@ Cloud providers (optional):
 
 Also in this folder:
   bin/PRAW-tui     terminal UI front-end
-  The backend serves /healthz and /metrics on 127.0.0.1:8080
-  (backend log: ~/Library/Logs/PRAW-backend.log).
+  Inside PRAW.app the backend serves /healthz and /metrics on
+  127.0.0.1:${BACKEND_PORT} (backend log: ~/Library/Logs/PRAW-backend.log;
+  it rotates at 10 MB). A backend you start by hand defaults to port 8080.
 
 Notes:
   - The backend listens on loopback only. If you expose it to your network,
-    require a key: --api-key <secret>, and set the same value in Warp via
-    WARP_API_KEY.
-  - Client auth for the server: any key is accepted by default; the Warp
-    client self-registers with a placeholder key.
+    require a key: --api-key <secret>, and set the same value in the client
+    via WARP_API_KEY.
+  - Client auth for the server: any key is accepted by default; the client
+    self-registers with a placeholder key.
   - Voice transcription and web search are available if you run an STT
     endpoint (--transcribe-base-url) or SearXNG (--web-search-url).
 README
@@ -193,10 +206,73 @@ codesign --force -s - "$STAGE_ROOT/bin/PRAW-tui" 2>/dev/null || true
 
 (cd dist && zip -qr "PRAW-macos-universal.zip" "PRAW-macos-universal")
 
-hdiutil create -volname PRAW -srcfolder "$STAGE_ROOT" -ov -format UDZO \
-    "dist/PRAW-macos-universal.dmg" >/dev/null
+# ── DMG ─────────────────────────────────────────────────────────────────────
+# Drag-to-install layout: background art, positioned icons, an Applications
+# symlink, and a right-sized window. Built by hand (UDRW → decorated → UDZO)
+# because `hdiutil -srcfolder` can't do any of that. Finder automation is
+# best-effort; without it the DMG still builds, just with default layout.
+build_fancy_dmg() {
+    local src="$1" dmg="$2"
+    local rw="dist/PRAW-rw.dmg"
+    rm -f "$rw"
+    local size_mb=$(( $(du -sk "$src" | cut -f1) / 1024 * 13 / 10 + 64 ))
+    hdiutil create -size "${size_mb}m" -fs "HFS+" -volname PRAW \
+        "$rw" >/dev/null || return 1
+    # Mount at the default /Volumes location: Finder only scripts disks it
+    # can see there. Resolve the real name in case "PRAW" was taken.
+    local attach_output mount_point vol_name
+    if ! attach_output=$(hdiutil attach "$rw" -nobrowse); then
+        return 1
+    fi
+    mount_point=$(printf '%s\n' "$attach_output" | awk 'NF { point = $NF } END { print point }')
+    vol_name=$(basename "$mount_point")
+    cp -R "$src"/ "$mount_point/" || { hdiutil detach "$mount_point" -force -quiet; return 1; }
+    ln -s /Applications "$mount_point/Applications"
+    if [[ -f "$DMG_BACKGROUND" ]]; then
+        mkdir -p "$mount_point/.background"
+        cp "$DMG_BACKGROUND" "$mount_point/.background/background.png"
+    fi
+    # The alarm survives exec, so a stuck automation prompt can't hang the
+    # build; the DMG still converts with a default layout.
+    perl -e 'alarm 30; exec @ARGV' osascript <<LAYOUT >/dev/null 2>&1 || true
+tell application "Finder"
+    tell disk "${vol_name}"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set bounds of container window to {200, 160, 860, 560}
+        set viewOptions to icon view options of container window
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to 120
+        set background picture of viewOptions to file ".background:background.png"
+        set position of item "PRAW.app" of container window to {165, 225}
+        set position of item "Applications" of container window to {495, 225}
+        close
+        open
+        update without registering applications
+    end tell
+end tell
+LAYOUT
+    sleep 2
+    hdiutil detach "$mount_point" -quiet || hdiutil detach "$mount_point" -force -quiet || return 1
+    rm -f "$dmg"
+    hdiutil convert "$rw" -format UDZO -o "$dmg" >/dev/null || return 1
+    rm -f "$rw"
+}
+
+if build_fancy_dmg "$STAGE_ROOT" "dist/PRAW-macos-universal.dmg"; then
+    :
+else
+    echo "Decorated DMG unavailable; building a plain one."
+    hdiutil detach "/Volumes/PRAW" -force -quiet >/dev/null 2>&1 || true
+    rm -f "dist/PRAW-rw.dmg"
+    hdiutil create -volname PRAW -srcfolder "$STAGE_ROOT" -ov -format UDZO \
+        "dist/PRAW-macos-universal.dmg" >/dev/null
+fi
 
 echo
-echo "Packaged: dist/PRAW-macos-universal.zip"
+echo "Packaged: PRAW ${VERSION}"
+echo "Zip:      dist/PRAW-macos-universal.zip"
 echo "DMG:      dist/PRAW-macos-universal.dmg"
 echo "Folder:   $STAGE_ROOT"
