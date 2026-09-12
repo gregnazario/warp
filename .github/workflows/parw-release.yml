@@ -1,16 +1,15 @@
 name: PRAW release (macOS ARM)
 
 # Automated build of PRAW — the self-hosted, Warp-infrastructure-free build.
-# - Any push to parw/master: builds and uploads the package as an artifact.
-# - Tag push parw-v*: also publishes a drag-to-install DMG as a GitHub release.
-# - workflow_dispatch: build on demand from any branch.
+# - Tag push parw-v*: builds the package and publishes the DMG as a release.
+# - workflow_dispatch: build on demand from any branch (artifact, no release
+#   unless run from a tag).
+# Branch pushes do not build: each macOS run costs ~2 hours; correctness on
+# push is covered by parw-tests.yml instead.
 
 on:
   push:
-    branches: [parw, master]
     tags: ["parw-v*"]
-    # Changing this workflow alone should not trigger a full macOS release build.
-    paths-ignore: [".github/workflows/parw-release.yml"]
   workflow_dispatch:
 
 permissions:
