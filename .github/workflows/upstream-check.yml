@@ -35,6 +35,8 @@ jobs:
         if: steps.divergence.outputs.behind != '0'
         env:
           GH_TOKEN: ${{ github.token }}
+          # Both remotes exist here; without this gh may resolve to upstream.
+          GH_REPO: ${{ github.repository }}
           BEHIND: ${{ steps.divergence.outputs.behind }}
           HEAD: ${{ steps.divergence.outputs.head }}
         run: |
@@ -75,6 +77,7 @@ jobs:
         if: steps.divergence.outputs.behind == '0'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           gh label create upstream-sync --color 1d76db 2>/dev/null || true
           existing=$(gh issue list --label upstream-sync --state open --json number \
