@@ -1,0 +1,83 @@
+name: Upstream check
+
+# Weekly nudge: how far behind warpdotdev/warp master this fork's parw
+# branch is, with the files most likely to conflict. Small, regular merges
+# beat rare giant ones.
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+concurrency:
+  group: upstream-check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Measure divergence from upstream
+        id: divergence
+        run: |
+          git remote add upstream https://github.com/warpdotdev/warp.git
+          git fetch upstream master
+          echo "behind=$(git rev-list --count parw..upstream/master)" >> "$GITHUB_OUTPUT"
+          echo "head=$(git rev-parse --short upstream/master)" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update an issue when behind
+        if: steps.divergence.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEHIND: ${{ steps.divergence.outputs.behind }}
+          HEAD: ${{ steps.divergence.outputs.head }}
+        run: |
+          # Files changed on both sides since the last merge point are the
+          # likely conflict surface.
+          base=$(git merge-base parw upstream/master)
+          conflicts=$(comm -12 \
+            <(git diff --name-only "$base" parw | sort) \
+            <(git diff --name-only "$base" upstream/master | sort) | sed 's/^/- /')
+
+          gh label create upstream-sync --color 1d76db 2>/dev/null || true
+          existing=$(gh issue list --label upstream-sync --state open --json number \
+            --jq '.[0].number' 2>/dev/null || true)
+          body=$(mktemp)
+          {
+            echo "parw is **$BEHIND commits** behind \`warpdotdev/warp\` master (upstream HEAD $HEAD)."
+            echo
+            echo "Merge with: \`git fetch upstream && git merge upstream/master\`"
+            echo
+            echo "<details><summary>Files changed on both sides (likely conflicts)</summary>"
+            echo
+            echo "${conflicts:-none}"
+            echo
+            echo "</details>"
+            echo
+            echo "This issue updates weekly; close it after merging."
+          } > "$body"
+
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file "$body"
+          else
+            gh issue create --title "parw is $BEHIND commits behind upstream" \
+              --label upstream-sync --body-file "$body"
+          fi
+          rm -f "$body"
+
+      - name: Close the issue when up to date
+        if: steps.divergence.outputs.behind == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create upstream-sync --color 1d76db 2>/dev/null || true
+          existing=$(gh issue list --label upstream-sync --state open --json number \
+            --jq '.[0].number' 2>/dev/null || true)
+          [ -n "$existing" ] && gh issue close "$existing" --comment "Up to date."
+          true

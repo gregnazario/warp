@@ -7,6 +7,7 @@
 #   praw stop      quit PRAW.app and stop the backend
 #   praw doctor    run the bundled selfhost_server --doctor
 #   praw logs      follow the backend log
+#   praw update    install the latest release over the local PRAW.app
 #
 # Environment:
 #   PRAW_APP          path to PRAW.app (otherwise searched)
@@ -94,6 +95,70 @@ cmd_start() {
     echo "PRAW is open."
 }
 
+
+cmd_update() {
+    local repo="gregnazario/warp"
+    local api="https://api.github.com/repos/${repo}/releases/latest"
+
+    echo "Checking the latest PRAW release..."
+    local payload tag dmg_url
+    payload=$(curl -s -m 15 "$api") || { echo "error: could not reach GitHub" >&2; return 1; }
+    tag=$(printf '%s' "$payload" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
+    dmg_url=$(printf '%s' "$payload" \
+        | sed -n 's/.*"browser_download_url": *"\([^"]*PRAW-macos-universal.dmg\)".*/\1/p' | head -1)
+    [[ -n "$tag" && -n "$dmg_url" ]] || { echo "error: no release with a DMG found" >&2; return 1; }
+
+    local app current=""
+    app=$(find_app) || app="/Applications/PRAW.app"
+    [[ -d "$app" ]] && current=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+        "$app/Contents/Info.plist" 2>/dev/null)
+    if [[ "$current" == "${tag#parw-v}" ]]; then
+        echo "Already up to date (${tag})."
+        return 0
+    fi
+    echo "Updating ${current:-<not installed>} -> ${tag#parw-v} ..."
+
+    local tmp
+    tmp=$(mktemp -d /tmp/praw-update.XXXXXX) || return 1
+    echo "Downloading ${tag} ..."
+    curl -sL -m 600 -o "$tmp/PRAW.dmg" "$dmg_url" || { echo "error: download failed" >&2; return 1; }
+
+    echo "Quitting PRAW..."
+    osascript -e 'tell application "PRAW" to quit' >/dev/null 2>&1
+    sleep 2
+    pkill -f 'PRAW.app/Contents/MacOS/warp-oss' 2>/dev/null
+    pkill -f 'selfhost_server --bind' 2>/dev/null
+    sleep 2
+
+    hdiutil attach "$tmp/PRAW.dmg" -nobrowse -quiet || { echo "error: mount failed" >&2; return 1; }
+    local mounted="/Volumes/PRAW"
+    [[ -d "$mounted/PRAW.app" ]] || mounted=$(ls -d /Volumes/PRAW*/ 2>/dev/null | head -1)
+    [[ -d "$mounted/PRAW.app" ]] || { echo "error: DMG layout unexpected" >&2; hdiutil detach "/Volumes/PRAW" -quiet; return 1; }
+
+    echo "Replacing $app ..."
+    rm -rf "$app"
+    cp -R "$mounted/PRAW.app" "$app" || { echo "error: copy failed" >&2; hdiutil detach "$mounted" -quiet; return 1; }
+    # Refresh this script if it is an installed copy, not the DMG's own.
+    if [[ -f "$mounted/bin/praw" && "${BASH_SOURCE[0]}" != */PRAW-macos-universal/* ]]; then
+        cp "$mounted/bin/praw" "${BASH_SOURCE[0]}" 2>/dev/null \
+            && echo "Updated the praw command at ${BASH_SOURCE[0]}."
+    fi
+    hdiutil detach "$mounted" -quiet
+    rm -rf "$tmp"
+    xattr -c "$app" >/dev/null 2>&1
+
+    echo "Relaunching..."
+    open "$app"
+    sleep 10
+    local health
+    health=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:${PORT}/healthz" 2>/dev/null)
+    if [[ "$health" == "200" ]]; then
+        echo "Update to ${tag#parw-v} complete (backend healthy)."
+    else
+        echo "Installed ${tag#parw-v}, but the backend is not healthy yet; see $LOG."
+    fi
+}
+
 cmd_stop() {
     osascript -e 'tell application "PRAW" to quit' >/dev/null 2>&1 || true
     local pid
@@ -134,6 +199,7 @@ case "${1:-start}" in
     backend) start_backend ;;
     status) cmd_status ;;
     stop) cmd_stop ;;
+    update) cmd_update ;;
     doctor) shift; cmd_doctor "$@" ;;
     logs) cmd_logs ;;
     help|-h|--help) usage 0 ;;

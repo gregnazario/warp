@@ -114,6 +114,7 @@ praw status     # is the backend healthy, where is the app
 praw stop       # quit the app and stop the backend
 praw doctor     # run selfhost_server --doctor from the installed app
 praw logs       # follow the backend log
+praw update     # install the latest release over the local app
 ```
 
 It honors `PRAW_APP` (path to PRAW.app) and `PRAW_BACKEND_PORT`
