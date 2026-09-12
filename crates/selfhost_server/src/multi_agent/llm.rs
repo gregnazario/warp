@@ -138,6 +138,18 @@ async fn for_each_sse_data(
     Ok(())
 }
 
+/// Users routinely paste the provider's full completions URL as the base
+/// (e.g. `https://opencode.ai/zen/go/v1/chat/completions`); appending the
+/// endpoint suffix to such a base 404s on the provider's web server.
+fn completions_url(base_url: &str, suffix: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with(suffix) {
+        base.to_owned()
+    } else {
+        format!("{base}{suffix}")
+    }
+}
+
 fn truncate(s: &str, max: usize) -> &str {
     match s.char_indices().nth(max) {
         Some((idx, _)) => &s[..idx],
@@ -241,7 +253,7 @@ mod openai {
             body["tools"] = Value::Array(tool_definitions(tools));
         }
 
-        let url = format!("{}/chat/completions", llm.base_url.trim_end_matches('/'));
+        let url = completions_url(&llm.base_url, "/chat/completions");
         let mut headers = Vec::new();
         if let Some(key) = &llm.api_key {
             headers.push(("Authorization".to_owned(), format!("Bearer {key}")));
@@ -400,7 +412,7 @@ mod anthropic {
             body["tools"] = Value::Array(definitions);
         }
 
-        let url = format!("{}/messages", llm.base_url.trim_end_matches('/'));
+        let url = completions_url(&llm.base_url, "/messages");
         let mut headers = vec![("anthropic-version".to_owned(), "2023-06-01".to_owned())];
         if let Some(key) = &llm.api_key {
             headers.push(("x-api-key".to_owned(), key.clone()));
@@ -550,7 +562,7 @@ mod chatgpt {
             "stream": true,
         });
 
-        let url = format!("{}/responses", llm.base_url.trim_end_matches('/'));
+        let url = completions_url(&llm.base_url, "/responses");
         let mut request = client
             .post(url.clone())
             .header(

@@ -528,3 +528,25 @@ async fn provider_headers_are_sent_on_llm_requests() {
     );
     assert!(seen.iter().any(|line| line.contains("x-title")), "{seen:?}");
 }
+
+#[test]
+fn completions_url_does_not_double_the_endpoint_suffix() {
+    // A base that is already the full completions URL is used as-is.
+    assert_eq!(
+        completions_url(
+            "https://opencode.ai/zen/go/v1/chat/completions",
+            "/chat/completions"
+        ),
+        "https://opencode.ai/zen/go/v1/chat/completions",
+    );
+    // A prefix base gets the suffix appended.
+    assert_eq!(
+        completions_url("https://api.z.ai/api/coding/paas/v4", "/chat/completions"),
+        "https://api.z.ai/api/coding/paas/v4/chat/completions",
+    );
+    // Trailing slashes are normalized first.
+    assert_eq!(
+        completions_url("https://host/v1/", "/chat/completions"),
+        "https://host/v1/chat/completions",
+    );
+}
