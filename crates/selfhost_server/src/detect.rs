@@ -109,7 +109,7 @@ pub async fn probe(http: &reqwest::Client, target: &ProbeTarget) -> Result<Detec
 
 /// Extracts model ids from either `{data: [{id: ...}]}` (OpenAI style) or
 /// `{models: [{name: ...}]}` (Ollama /api/tags style).
-fn model_ids(body: &Value) -> Vec<String> {
+pub fn model_ids(body: &Value) -> Vec<String> {
     body["data"]
         .as_array()
         .iter()

@@ -1,9 +1,9 @@
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
+use instant::Instant;
 use serde_json::{Value, json};
 
-use crate::config::Config;
 use crate::multi_agent::{AppState, check_auth};
 
 pub async fn graphql(State(state): State<AppState>, headers: HeaderMap, body: String) -> Response {
@@ -23,19 +23,25 @@ pub async fn graphql(State(state): State<AppState>, headers: HeaderMap, body: St
     let variables = &payload["variables"];
     tracing::info!(operation = %operation, "GraphQL request");
     let response = match operation.as_str() {
-        "GetUser" => Json(get_user_response(&state.config)).into_response(),
-        "GetFeatureModelChoices" => {
-            Json(feature_model_choices_response(&state.config)).into_response()
-        }
+        "GetUser" => Json(get_user_response(&catalog_models(&state).await)).into_response(),
+        "GetFeatureModelChoices" => Json(feature_model_choices_response(
+            &catalog_models(&state).await,
+        ))
+        .into_response(),
         "GetWorkspacesMetadataForUser" => Json(workspaces_metadata_response()).into_response(),
         "GetUpdatedCloudObjects" => Json(updated_cloud_objects_response()).into_response(),
         "GetRequestLimitInfo" => Json(request_limit_info_response()).into_response(),
         "GetAICreditAvailability" => Json(credit_availability_response()).into_response(),
         "ListAIConversationMetadata" => Json(conversation_metadata_response()).into_response(),
-        "FreeAvailableModels" => {
-            Json(free_available_models_response(&state.config)).into_response()
-        }
+        "FreeAvailableModels" => Json(free_available_models_response(
+            &catalog_models(&state).await,
+        ))
+        .into_response(),
         "BulkCreateObjects" => Json(bulk_create_objects_response(variables)).into_response(),
+        "UpdateGenericStringObject" => {
+            Json(update_generic_string_object_response()).into_response()
+        }
+        "DeleteObject" => Json(delete_object_response(variables)).into_response(),
         "GetAvailableHarnesses" => Json(available_harnesses_response()).into_response(),
         "GetUserSettings" => Json(user_settings_response()).into_response(),
         "GetCloudEnvironmentsQuery" => Json(cloud_environments_response()).into_response(),
@@ -47,7 +53,7 @@ pub async fn graphql(State(state): State<AppState>, headers: HeaderMap, body: St
             // Fall back to the query-text marker for clients (and tests) that
             // post the GetUser query without an operation name.
             if body.contains(GET_USER_MARKER) {
-                Json(get_user_response(&state.config)).into_response()
+                Json(get_user_response(&catalog_models(&state).await)).into_response()
             } else {
                 unsupported()
             }
@@ -72,7 +78,61 @@ fn unsupported() -> Response {
 /// A marker unique to the client's `GetUser` GraphQL query.
 const GET_USER_MARKER: &str = "globalSkills";
 
-pub(crate) fn get_user_response(config: &Config) -> Value {
+/// The model list for the catalog: the cache contents, re-probed from the
+/// LLM endpoint when stale so models pulled after startup appear without a
+/// backend restart. Falls back to the startup list when the probe fails and
+/// to `--llm-model` when nothing was ever configured.
+async fn catalog_models(state: &AppState) -> Vec<String> {
+    const PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+    {
+        let cache = state.model_cache.lock().expect("model cache lock");
+        if !cache.models.is_empty()
+            && cache
+                .refreshed_at
+                .is_some_and(|at| at.elapsed() < PROBE_INTERVAL)
+        {
+            return cache.models.clone();
+        }
+    }
+
+    let base = state.config.llm_base_url.trim_end_matches('/');
+    let mut probed = probe_models(&state.http, &format!("{base}/models")).await;
+    if probed.is_empty() && !base.ends_with("/v1") {
+        probed = probe_models(&state.http, &format!("{base}/v1/models")).await;
+    }
+
+    let mut cache = state.model_cache.lock().expect("model cache lock");
+    cache.refreshed_at = Some(Instant::now());
+    if !probed.is_empty() {
+        cache.models = probed;
+    }
+    if cache.models.is_empty()
+        && let Some(single) = &state.config.llm_model
+    {
+        cache.models = vec![single.clone()];
+    }
+    cache.models.clone()
+}
+
+async fn probe_models(http: &reqwest::Client, url: &str) -> Vec<String> {
+    let response = match http
+        .get(url)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+    {
+        Ok(response) if response.status().is_success() => response,
+        _ => return Vec::new(),
+    };
+    response
+        .json::<Value>()
+        .await
+        .ok()
+        .map(|body| crate::detect::model_ids(&body))
+        .unwrap_or_default()
+}
+
+pub(crate) fn get_user_response(models: &[String]) -> Value {
     json!({
         "data": {
             "user": {
@@ -86,7 +146,7 @@ pub(crate) fn get_user_response(config: &Config) -> Value {
                     "isOnboarded": true,
                     "isOnWorkDomain": false,
                     "profile": user_profile(),
-                    "llms": catalog(config),
+                    "llms": catalog(models),
                 },
             }
         }
@@ -95,14 +155,14 @@ pub(crate) fn get_user_response(config: &Config) -> Value {
 
 /// The `GetFeatureModelChoices` response, which populates the client's model
 /// picker from this server's configured models.
-pub(crate) fn feature_model_choices_response(config: &Config) -> Value {
+pub(crate) fn feature_model_choices_response(models: &[String]) -> Value {
     json!({
         "data": {
             "user": {
                 "__typename": "UserOutput",
                 "user": {
                     "workspaces": [
-                        {"featureModelChoice": catalog(config)}
+                        {"featureModelChoice": catalog(models)}
                     ]
                 },
             }
@@ -111,16 +171,14 @@ pub(crate) fn feature_model_choices_response(config: &Config) -> Value {
 }
 
 /// The model catalog served for every feature surface.
-fn catalog(config: &Config) -> Value {
-    // The catalog lists every configured model in preference order; with no
+fn catalog(models: &[String]) -> Value {
+    // The catalog lists every served model in preference order; with no
     // explicit configuration, a single placeholder is served and the client's
     // selection is passed through to the LLM endpoint unchanged.
-    let models: Vec<String> = if !config.llm_models.is_empty() {
-        config.llm_models.clone()
-    } else if let Some(single) = &config.llm_model {
-        vec![single.clone()]
-    } else {
+    let models: Vec<String> = if models.is_empty() {
         vec!["selfhosted-model".to_owned()]
+    } else {
+        models.to_vec()
     };
     let available_llms = || {
         json!({
@@ -278,12 +336,12 @@ pub(crate) fn conversation_metadata_response() -> Value {
 }
 
 /// The `FreeAvailableModels` response: the served catalog, free of charge.
-pub(crate) fn free_available_models_response(config: &Config) -> Value {
+pub(crate) fn free_available_models_response(models: &[String]) -> Value {
     json!({
         "data": {
             "freeAvailableModels": {
                 "__typename": "FreeAvailableModelsOutput",
-                "featureModelChoice": catalog(config),
+                "featureModelChoice": catalog(models),
                 "responseContext": response_context(),
             }
         }
@@ -407,6 +465,41 @@ fn served_generic_string_object(input: &Value) -> Value {
             "space": {"uid": "selfhosted-space000000", "type": "User"},
         },
         "serializedModel": input["serializedModel"],
+    })
+}
+
+/// The `UpdateGenericStringObject` mutation: acknowledges the update without
+/// persisting anything (local state stays authoritative), so the client stops
+/// retrying it forever.
+pub(crate) fn update_generic_string_object_response() -> Value {
+    json!({
+        "data": {
+            "updateGenericStringObject": {
+                "__typename": "UpdateGenericStringObjectOutput",
+                "responseContext": response_context(),
+                "update": {
+                    "__typename": "ObjectUpdateSuccess",
+                    "lastEditorUid": "selfhosted-user0000000",
+                    "revisionTs": STUB_TIME,
+                },
+            }
+        }
+    })
+}
+
+/// The `DeleteObject` mutation: acknowledges the deletion.
+pub(crate) fn delete_object_response(variables: &Value) -> Value {
+    let uid = variables["input"]["uid"].clone();
+    let deleted_uids = if uid.is_null() { Vec::new() } else { vec![uid] };
+    json!({
+        "data": {
+            "deleteObject": {
+                "__typename": "DeleteObjectOutput",
+                "deletedUids": deleted_uids,
+                "responseContext": response_context(),
+                "success": true,
+            }
+        }
     })
 }
 

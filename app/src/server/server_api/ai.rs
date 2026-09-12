@@ -3479,7 +3479,14 @@ impl From<warp_graphql::queries::get_feature_model_choices::LlmInfo> for LLMInfo
             reasoning_level: value.reasoning_level,
             usage_metadata: value.usage_metadata.into(),
             description: value.description,
-            disable_reason: value.disable_reason.map(DisableReason::from),
+            // Self-hosted: the local server serves every model it has, so a
+            // plan-gated disable reason (even a stale cached one) never
+            // applies and no paywall UI is derived from it.
+            disable_reason: if warp_core::channel::ChannelState::is_self_hosted() {
+                None
+            } else {
+                value.disable_reason.map(DisableReason::from)
+            },
             vision_supported: value.vision_supported,
             spec: value.spec.map(Into::into),
             provider: value.provider.into(),
@@ -3518,7 +3525,14 @@ impl From<warp_graphql::workspace::LlmInfo> for LLMInfo {
             reasoning_level: value.reasoning_level,
             usage_metadata: value.usage_metadata.into(),
             description: value.description,
-            disable_reason: value.disable_reason.map(DisableReason::from),
+            // Self-hosted: the local server serves every model it has, so a
+            // plan-gated disable reason (even a stale cached one) never
+            // applies and no paywall UI is derived from it.
+            disable_reason: if warp_core::channel::ChannelState::is_self_hosted() {
+                None
+            } else {
+                value.disable_reason.map(DisableReason::from)
+            },
             vision_supported: value.vision_supported,
             spec: value.spec.map(Into::into),
             provider: value.provider.into(),

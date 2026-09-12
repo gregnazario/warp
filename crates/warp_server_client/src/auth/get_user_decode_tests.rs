@@ -329,6 +329,45 @@ async fn selfhost_straggler_stub_responses_decode_with_the_client_schema() {
             .is_cloud_conversation_storage_enabled
     );
 
+    // UpdateGenericStringObject
+    let raw = post(
+        "UpdateGenericStringObject",
+        "mutation UpdateGenericStringObject { updateGenericStringObject { responseContext { serverVersion } update { __typename } } }",
+    )
+    .await;
+    let decoded: GraphQlResponse<
+        warp_graphql::mutations::update_generic_string_object::UpdateGenericStringObject,
+    > = serde_json::from_value(raw)
+        .expect("update generic string object must decode with the client's schema");
+    match decoded
+        .data
+        .expect("data present")
+        .update_generic_string_object
+    {
+        warp_graphql::mutations::update_generic_string_object::UpdateGenericStringObjectResult::UpdateGenericStringObjectOutput(output) => {
+            assert!(matches!(
+                output.update,
+                warp_graphql::mutations::update_generic_string_object::GenericStringObjectUpdate::ObjectUpdateSuccess(_)
+            ));
+        }
+        _ => panic!("update generic string object decoded as Unknown"),
+    }
+
+    // DeleteObject
+    let raw = post(
+        "DeleteObject",
+        "mutation DeleteObject { deleteObject { deletedUids success responseContext { serverVersion } } }",
+    )
+    .await;
+    let decoded: GraphQlResponse<warp_graphql::mutations::delete_object::DeleteObject> =
+        serde_json::from_value(raw).expect("delete object must decode with the client's schema");
+    match decoded.data.expect("data present").delete_object {
+        warp_graphql::mutations::delete_object::DeleteObjectResult::DeleteObjectOutput(output) => {
+            assert!(output.success);
+        }
+        _ => panic!("delete object decoded as Unknown"),
+    }
+
     // GetCloudEnvironmentsQuery
     let raw = post(
         "GetCloudEnvironmentsQuery",

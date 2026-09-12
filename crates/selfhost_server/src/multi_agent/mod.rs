@@ -30,10 +30,35 @@ pub struct AppState {
     /// OAuth access tokens keyed by provider, cached until near expiry.
     pub token_cache: Arc<std::sync::Mutex<HashMap<String, (String, Instant)>>>,
     pub metrics: MetricsHandle,
+    /// Model catalog, re-probed from the LLM endpoint so models pulled after
+    /// startup show up in the client's picker without a backend restart.
+    pub model_cache: Arc<std::sync::Mutex<ModelCache>>,
+}
+
+/// The served model list and when it was last re-probed.
+#[derive(Default)]
+pub struct ModelCache {
+    pub models: Vec<String>,
+    pub refreshed_at: Option<Instant>,
 }
 
 pub fn router(config: Config) -> axum::Router {
+    // Seed the catalog with the startup configuration; an explicit
+    // `--llm-model` pin holds until a live probe finds models.
+    let seeded_models = if config.llm_models.is_empty() {
+        config
+            .llm_model
+            .clone()
+            .map(|model| vec![model])
+            .unwrap_or_default()
+    } else {
+        config.llm_models.clone()
+    };
     let state = AppState {
+        model_cache: Arc::new(std::sync::Mutex::new(ModelCache {
+            models: seeded_models,
+            refreshed_at: Some(Instant::now()),
+        })),
         config: Arc::new(config),
         http: reqwest::Client::new(),
         token_cache: Arc::new(std::sync::Mutex::new(HashMap::new())),

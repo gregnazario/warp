@@ -735,11 +735,8 @@ async fn relevant_files_ranks_the_outline() {
 
 #[test]
 fn model_catalog_lists_all_configured_models() {
-    let config = crate::config::Config {
-        llm_models: vec!["big-model".to_owned(), "fast-model".to_owned()],
-        ..crate::config::Config::test_default()
-    };
-    let response = crate::graphql::get_user_response(&config);
+    let response =
+        crate::graphql::get_user_response(&["big-model".to_owned(), "fast-model".to_owned()]);
     let agent_mode = &response["data"]["user"]["user"]["llms"]["agentMode"];
     assert_eq!(agent_mode["defaultId"], "big-model");
     let choices = agent_mode["choices"].as_array().unwrap();
