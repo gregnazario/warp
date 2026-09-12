@@ -102,6 +102,23 @@ Troubleshooting starts with:
 selfhost_server --doctor   # backends, keys, ports — what's working and what isn't
 ```
 
+## Command line
+
+The package ships a `praw` CLI (install it with `Install PRAW.command`, or
+copy `bin/praw` somewhere on your `PATH`):
+
+```sh
+praw            # start the backend (if needed) and open PRAW.app
+praw backend    # start just the agent backend (e.g. for the TUI)
+praw status     # is the backend healthy, where is the app
+praw stop       # quit the app and stop the backend
+praw doctor     # run selfhost_server --doctor from the installed app
+praw logs       # follow the backend log
+```
+
+It honors `PRAW_APP` (path to PRAW.app) and `PRAW_BACKEND_PORT`
+(default 48080, matching the app launcher).
+
 ## Building a package
 
 ```sh

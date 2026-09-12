@@ -80,7 +80,10 @@ fn start_backend(dir: &std::path::Path, port: u16) {
         .spawn();
     match spawned {
         Ok(_child) => {
-            if !wait_for_backend(port, Duration::from_secs(10)) {
+            // Generous because startup probes every autodetect target,
+            // including ones that accept TCP but answer slowly; a false
+            // alarm here worries the user over nothing.
+            if !wait_for_backend(port, Duration::from_secs(30)) {
                 warn_backend_failed(
                     "PRAW's agent backend did not become healthy, so agent mode will not work. \
                      The backend log is PRAW-backend.log in ~/Library/Logs.",

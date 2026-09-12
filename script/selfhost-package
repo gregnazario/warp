@@ -3,9 +3,11 @@
 #
 #   dist/PRAW-macos-universal/
 #     PRAW.app                      GUI; auto-starts the bundled backend
+#     bin/praw                      CLI: start/backend/status/stop/doctor/logs
 #     bin/selfhost_server           agent backend binary
 #     bin/PRAW-tui              TUI front-end
-#     Install PRAW.command          clears quarantine + opens PRAW
+#     Install PRAW.command          clears quarantine + opens PRAW + installs
+#                                   the praw CLI onto PATH
 #     README.txt                    setup instructions
 #
 # and zips it to dist/PRAW-macos-universal.zip plus a drag-to-install
@@ -102,6 +104,10 @@ mv "$STAGE_ROOT/bin/parw_launcher" "$MACOS_DIR/PRAWLauncher"
 # Keep a copy of the backend in bin/ too for TUI users (README references it).
 cp "$STAGE_ROOT/bin/selfhost_server" "$MACOS_DIR/selfhost_server"
 
+# Command-line control, installed onto PATH by Install PRAW.command.
+cp script/praw "$STAGE_ROOT/bin/praw"
+chmod +x "$STAGE_ROOT/bin/praw"
+
 if [[ -f "$ICON_SRC" ]]; then
     if ICONSET="$STAGE_ROOT/icon.iconset"; mkdir -p "$ICONSET"; then
         sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png" >/dev/null 2>&1 || true
@@ -148,7 +154,26 @@ echo "Removing the macOS quarantine flag from PRAW.app..."
 xattr -dr com.apple.quarantine "PRAW.app" 2>/dev/null || sudo xattr -dr com.apple.quarantine "PRAW.app"
 echo "Starting PRAW (backend starts automatically with the app)..."
 open "PRAW.app"
-echo "Done. PRAW is in your Applications folder if you copied it there."
+
+# Install the `praw` command-line tool (copied, not linked: the DMG goes away).
+if [[ -f "bin/praw" ]]; then
+    installed=""
+    for dir in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; do
+        if [[ -d "$dir" && -w "$dir" ]]; then
+            cp "bin/praw" "$dir/praw" && chmod +x "$dir/praw" && installed="$dir" && break
+        fi
+    done
+    if [[ -z "$installed" ]]; then
+        sudo install -m 0755 "bin/praw" /usr/local/bin/praw 2>/dev/null && installed=/usr/local/bin
+    fi
+    if [[ -n "$installed" ]]; then
+        echo "Installed the 'praw' command to $installed/praw."
+        if [[ "$installed" == "$HOME/.local/bin" && ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+            echo "Note: add $HOME/.local/bin to your PATH to use it."
+        fi
+    fi
+fi
+echo "Done. PRAW is in your Applications folder; try 'praw status'."
 INSTALLER
 chmod +x "$STAGE_ROOT/Install PRAW.command"
 
@@ -184,6 +209,7 @@ Cloud providers (optional):
   --provider zai|opencode|xai|openai|anthropic|google|openrouter  with --<name>-api-key
 
 Also in this folder:
+  bin/praw         command-line control: start/backend/status/stop/doctor/logs
   bin/PRAW-tui     terminal UI front-end
   Inside PRAW.app the backend serves /healthz and /metrics on
   127.0.0.1:${BACKEND_PORT} (backend log: ~/Library/Logs/PRAW-backend.log;

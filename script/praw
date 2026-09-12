@@ -1,0 +1,141 @@
+#!/bin/bash
+# praw — command-line control for PRAW (the self-hosted agent terminal).
+#
+#   praw [start]   start the backend (if needed) and open PRAW.app
+#   praw backend   start just the agent backend
+#   praw status    backend health, app location, port
+#   praw stop      quit PRAW.app and stop the backend
+#   praw doctor    run the bundled selfhost_server --doctor
+#   praw logs      follow the backend log
+#
+# Environment:
+#   PRAW_APP          path to PRAW.app (otherwise searched)
+#   PRAW_BACKEND_PORT backend port (default 48080, same as the app launcher)
+
+set -u
+
+PORT="${PRAW_BACKEND_PORT:-48080}"
+LOG="${HOME}/Library/Logs/PRAW-backend.log"
+MAX_LOG_BYTES=$((10 * 1024 * 1024))
+
+usage() {
+    sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
+find_app() {
+    local candidate
+    for candidate in "${PRAW_APP:-}" \
+        "$HOME/Applications/PRAW.app" \
+        "/Applications/PRAW.app" \
+        "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/PRAW.app"; do
+        if [[ -n "$candidate" && -d "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+backend_healthy() {
+    [[ "$(curl -s -o /dev/null -m 1 -w '%{http_code}' "http://127.0.0.1:${PORT}/healthz")" == "200" ]]
+}
+
+backend_pid() {
+    local pid
+    for pid in $(lsof -ti "tcp:${PORT}" -sTCP:LISTEN 2>/dev/null); do
+        if ps -p "$pid" -o comm= 2>/dev/null | grep -q 'selfhost_server'; then
+            printf '%s\n' "$pid"
+            return 0
+        fi
+    done
+    return 1
+}
+
+start_backend() {
+    if backend_healthy; then
+        echo "Backend already running on http://127.0.0.1:${PORT}."
+        return 0
+    fi
+    local app backend
+    app=$(find_app) || {
+        echo "error: PRAW.app not found (set PRAW_APP or install the app)." >&2
+        return 1
+    }
+    backend="$app/Contents/MacOS/selfhost_server"
+    [[ -x "$backend" ]] || {
+        echo "error: backend missing at $backend" >&2
+        return 1
+    }
+    if [[ -f "$LOG" && "$(stat -f %z "$LOG")" -gt "$MAX_LOG_BYTES" ]]; then
+        mv "$LOG" "${LOG}.old"
+    fi
+    echo "Starting backend on http://127.0.0.1:${PORT} ..."
+    nohup "$backend" --bind "127.0.0.1:${PORT}" >>"$LOG" 2>&1 &
+    local waited=0
+    until backend_healthy; do
+        # Cold starts can take a while: autodetect probes every candidate
+        # backend, including ones that accept TCP but answer slowly.
+        if ((waited >= 30)); then
+            echo "error: backend did not become healthy; see $LOG" >&2
+            return 1
+        fi
+        sleep 0.5
+        waited=$((waited + 1))
+    done
+    echo "Backend is healthy (log: $LOG)."
+}
+
+cmd_start() {
+    start_backend || return 1
+    local app
+    app=$(find_app) || return 1
+    open "$app"
+    echo "PRAW is open."
+}
+
+cmd_stop() {
+    osascript -e 'tell application "PRAW" to quit' >/dev/null 2>&1 || true
+    local pid
+    if pid=$(backend_pid); then
+        kill "$pid" && echo "Backend stopped."
+    else
+        echo "Backend not running."
+    fi
+}
+
+cmd_status() {
+    local app="not found"
+    app=$(find_app 2>/dev/null) || true
+    echo "app:      $app"
+    if backend_healthy; then
+        echo "backend:  healthy on http://127.0.0.1:${PORT} (pid $(backend_pid))"
+    else
+        echo "backend:  not running (port ${PORT} free or used by something else)"
+    fi
+}
+
+cmd_doctor() {
+    local app backend
+    app=$(find_app) || {
+        echo "error: PRAW.app not found (set PRAW_APP or install the app)." >&2
+        return 1
+    }
+    exec "$app/Contents/MacOS/selfhost_server" --doctor "$@"
+}
+
+cmd_logs() {
+    [[ -f "$LOG" ]] || { echo "No backend log at $LOG yet."; return 0; }
+    tail -n 50 -f "$LOG"
+}
+
+case "${1:-start}" in
+    start) cmd_start ;;
+    backend) start_backend ;;
+    status) cmd_status ;;
+    stop) cmd_stop ;;
+    doctor) shift; cmd_doctor "$@" ;;
+    logs) cmd_logs ;;
+    help|-h|--help) usage 0 ;;
+    *) echo "Unknown command: $1" >&2; usage 1 ;;
+esac
