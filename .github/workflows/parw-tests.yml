@@ -25,8 +25,9 @@ jobs:
       # prost-build invokes protoc for the multi-agent protobuf types;
       # fontconfig comes in through the client's font-kit dependency.
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y \
-          protobuf-compiler pkg-config libfontconfig1-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler pkg-config libfontconfig1-dev
 
       - name: Test self-hosted crates
         run: cargo test -p selfhost_server -p warp_server_client
