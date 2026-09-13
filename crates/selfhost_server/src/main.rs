@@ -93,9 +93,10 @@ struct Args {
     codex_token_file: Option<String>,
 
     /// Route requests carrying the client's BYOK API keys directly to the
-    /// provider named by the key (Anthropic/OpenAI/Google/OpenRouter) based on
-    /// the requested model's name.
-    #[arg(long, default_value_t = false)]
+    /// provider named by the key (Anthropic/OpenAI/Google/OpenRouter/Grok
+    /// OAuth) based on the requested model's name. On by default; disable
+    /// with `--byok-direct false`.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     byok_direct: bool,
 
     /// Validate every client bearer token by POSTing it as JSON
@@ -127,6 +128,10 @@ struct Args {
     /// OpenCode Zen API key (https://opencode.ai/zen/v1).
     #[arg(long, env = "SELFHOST_OPENCODE_API_KEY")]
     opencode_api_key: Option<String>,
+    /// OpenRouter API key (https://openrouter.ai/api/v1); routes any model
+    /// id containing `/`.
+    #[arg(long, env = "SELFHOST_OPENROUTER_API_KEY")]
+    openrouter_api_key: Option<String>,
 
     /// Azure tenant for Azure AI Foundry Entra-ID authentication.
     #[arg(long)]
@@ -307,6 +312,7 @@ impl Args {
             xai_api_key: self.xai_api_key.filter(|key| !key.is_empty()),
             zai_api_key: self.zai_api_key.filter(|key| !key.is_empty()),
             opencode_api_key: self.opencode_api_key.filter(|key| !key.is_empty()),
+            openrouter_api_key: self.openrouter_api_key.filter(|key| !key.is_empty()),
             azure_tenant: self.azure_tenant,
             azure_client_id: self.azure_client_id,
             azure_client_secret: self.azure_client_secret,
@@ -398,6 +404,7 @@ async fn doctor(args: &Args) {
         ("xai", &args.xai_api_key),
         ("zai", &args.zai_api_key),
         ("opencode", &args.opencode_api_key),
+        ("openrouter", &args.openrouter_api_key),
     ] {
         match key.as_deref().filter(|key| !key.is_empty()) {
             Some(key) => println!("  ok  {name} key set ({})", mask_key(key)),

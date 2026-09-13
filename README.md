@@ -72,6 +72,7 @@ carry a client BYO key are also routed natively by model name:
 | xAI           | `--xai-api-key`                                          |
 | Z.ai          | `--zai-api-key` (coding-plan endpoint)                   |
 | OpenCode Zen  | `--opencode-api-key` (required headers sent by default)  |
+| OpenRouter    | `--openrouter-api-key` (routes any `vendor/model` id)    |
 | ChatGPT/Codex | `--codex-login` once, then `--provider chatgpt`          |
 | Azure Foundry | `--azure-tenant/--azure-client-id/--azure-client-secret/--azure-foundry-url` |
 | Google Vertex | `--vertex` after `gcloud auth application-default login` |
@@ -92,7 +93,10 @@ WARP_SELF_HOSTED_SERVER_URL=http://127.0.0.1:8080 ./script/run-tui
 ```
 
 `WARP_API_KEY` supplies the client credential (any value works unless the
-server is started with `--api-key`). Server-side web search needs a SearXNG
+server is started with `--api-key`). Requests carrying client BYOK keys
+(Settings → API Keys) route straight to the matching provider by model
+name — on by default; disable with `--byok-direct false`. Custom endpoints
+configured in the client always win over every server-side decision. Server-side web search needs a SearXNG
 endpoint (`--web-search-url`); voice transcription needs an OpenAI-compatible
 STT endpoint (`--transcribe-base-url`).
 

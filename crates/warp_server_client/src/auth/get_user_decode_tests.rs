@@ -368,6 +368,64 @@ async fn selfhost_straggler_stub_responses_decode_with_the_client_schema() {
         _ => panic!("delete object decoded as Unknown"),
     }
 
+    // UpdateAgentTask
+    let raw = post(
+        "UpdateAgentTask",
+        "mutation UpdateAgentTask { updateAgentTask { __typename responseContext { serverVersion } } }",
+    )
+    .await;
+    let decoded: GraphQlResponse<warp_graphql::mutations::update_agent_task::UpdateAgentTask> =
+        serde_json::from_value(raw).expect("update agent task must decode");
+    match decoded.data.expect("data present").update_agent_task {
+        warp_graphql::mutations::update_agent_task::UpdateAgentTaskResult::UpdateAgentTaskOutput(
+            output,
+        ) => {
+            assert_eq!(
+                output.response_context.server_version.as_deref(),
+                Some("selfhosted-server")
+            );
+        }
+        _ => panic!("update agent task decoded as Unknown"),
+    }
+
+    // UserGithubInfo
+    let raw = post(
+        "UserGithubInfo",
+        "query UserGithubInfo { userGithubInfo { __typename } }",
+    )
+    .await;
+    let decoded: GraphQlResponse<warp_graphql::queries::user_github_info::UserGithubInfo> =
+        serde_json::from_value(raw).expect("user github info must decode");
+
+    // GetConversationUsage
+    let raw = post(
+        "GetConversationUsage",
+        "query GetConversationUsage { user { __typename user { conversationUsage { conversationId } } } }",
+    )
+    .await;
+    let decoded: GraphQlResponse<
+        warp_graphql::queries::get_conversation_usage::GetConversationUsage,
+    > = serde_json::from_value(raw).expect("conversation usage must decode");
+
+    // SetUserIsOnboarded
+    let raw = post(
+        "SetUserIsOnboarded",
+        "mutation SetUserIsOnboarded { setUserIsOnboarded { __typename responseContext { serverVersion } } }",
+    )
+    .await;
+    let decoded: GraphQlResponse<
+        warp_graphql::mutations::set_user_is_onboarded::SetUserIsOnboarded,
+    > = serde_json::from_value(raw).expect("set user is onboarded must decode");
+
+    // GetReferralInfo
+    let raw = post(
+        "GetReferralInfo",
+        "query GetReferralInfo { user { __typename user { referrals { referralCode } } } }",
+    )
+    .await;
+    let decoded: GraphQlResponse<warp_graphql::queries::get_referral_info::GetReferralInfo> =
+        serde_json::from_value(raw).expect("referral info must decode");
+
     // GetCloudEnvironmentsQuery
     let raw = post(
         "GetCloudEnvironmentsQuery",

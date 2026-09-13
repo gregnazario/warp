@@ -207,6 +207,8 @@ Cloud providers (optional):
   --provider azure-foundry   --azure-tenant/--azure-client-id/--azure-client-secret/--azure-foundry-url
   --provider vertex --vertex gcloud auth application-default login
   --provider zai|opencode|xai|openai|anthropic|google|openrouter  with --<name>-api-key
+  Client BYOK keys (Settings > API Keys) route to the matching provider by
+  default; custom endpoints in the client always take precedence
 
 Also in this folder:
   bin/praw         command-line control: start/backend/status/stop/doctor/logs

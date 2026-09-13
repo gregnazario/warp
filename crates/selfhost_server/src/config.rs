@@ -87,6 +87,8 @@ pub struct Config {
     pub zai_api_key: Option<String>,
     /// OpenCode Zen API key (https://opencode.ai/zen/v1).
     pub opencode_api_key: Option<String>,
+    /// OpenRouter API key (https://openrouter.ai/api/v1).
+    pub openrouter_api_key: Option<String>,
     /// Azure AI Foundry (Entra ID client-credentials OAuth).
     pub azure_tenant: Option<String>,
     pub azure_client_id: Option<String>,
@@ -125,7 +127,7 @@ impl Default for Config {
             llm_models: Vec::new(),
             context_window_tokens: 0,
             web_search_url: None,
-            byok_direct: false,
+            byok_direct: true,
             provider: None,
             openai_api_key: None,
             anthropic_api_key: None,
@@ -133,6 +135,7 @@ impl Default for Config {
             xai_api_key: None,
             zai_api_key: None,
             opencode_api_key: None,
+            openrouter_api_key: None,
             azure_tenant: None,
             azure_client_id: None,
             azure_client_secret: None,
@@ -450,6 +453,20 @@ impl Config {
             );
         }
 
+        if self
+            .openrouter_api_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty())
+            && model.contains('/')
+        {
+            return mk(
+                "https://openrouter.ai/api/v1",
+                self.openrouter_api_key.as_deref().unwrap_or_default(),
+                LlmSchema::Openai,
+                vec![],
+            );
+        }
+
         None
     }
 
@@ -694,7 +711,7 @@ impl Config {
             llm_models: Vec::new(),
             context_window_tokens: 0,
             web_search_url: None,
-            byok_direct: false,
+            byok_direct: true,
             auth_introspect_url: None,
             provider: None,
             openai_api_key: None,
@@ -703,6 +720,7 @@ impl Config {
             xai_api_key: None,
             zai_api_key: None,
             opencode_api_key: None,
+            openrouter_api_key: None,
             azure_tenant: None,
             azure_client_id: None,
             azure_client_secret: None,
@@ -731,3 +749,7 @@ impl ResolvedLlm {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "config_tests.rs"]
+mod tests;

@@ -41,6 +41,11 @@ pub async fn graphql(State(state): State<AppState>, headers: HeaderMap, body: St
         "UpdateGenericStringObject" => {
             Json(update_generic_string_object_response()).into_response()
         }
+        "UpdateAgentTask" => Json(update_agent_task_response()).into_response(),
+        "UserGithubInfo" => Json(user_github_info_response()).into_response(),
+        "GetConversationUsage" => Json(conversation_usage_response()).into_response(),
+        "SetUserIsOnboarded" => Json(set_user_is_onboarded_response()).into_response(),
+        "GetReferralInfo" => Json(referral_info_response()).into_response(),
         "DeleteObject" => Json(delete_object_response(variables)).into_response(),
         "GetAvailableHarnesses" => Json(available_harnesses_response()).into_response(),
         "GetUserSettings" => Json(user_settings_response()).into_response(),
@@ -498,6 +503,77 @@ pub(crate) fn delete_object_response(variables: &Value) -> Value {
                 "deletedUids": deleted_uids,
                 "responseContext": response_context(),
                 "success": true,
+            }
+        }
+    })
+}
+
+/// The `UpdateAgentTask` mutation: acknowledges the task-state update (task
+/// state itself stays client-local).
+pub(crate) fn update_agent_task_response() -> Value {
+    json!({
+        "data": {
+            "updateAgentTask": {
+                "__typename": "UpdateAgentTaskOutput",
+                "responseContext": response_context(),
+            }
+        }
+    })
+}
+
+/// The `UserGithubInfo` query: GitHub is never connected on a self-hosted
+/// server, so the client sees its native "auth required" state.
+pub(crate) fn user_github_info_response() -> Value {
+    json!({
+        "data": {
+            "userGithubInfo": {
+                "__typename": "GithubAuthRequiredOutput",
+                "authUrl": "",
+                "txId": stub_uid(),
+                "appInstallLink": "",
+            }
+        }
+    })
+}
+
+/// The `GetConversationUsage` query: no server-side usage history.
+pub(crate) fn conversation_usage_response() -> Value {
+    json!({
+        "data": {
+            "user": {
+                "__typename": "UserOutput",
+                "user": {"conversationUsage": []},
+            }
+        }
+    })
+}
+
+/// The `SetUserIsOnboarded` mutation: acknowledged; the local user is
+/// always considered onboarded.
+pub(crate) fn set_user_is_onboarded_response() -> Value {
+    json!({
+        "data": {
+            "setUserIsOnboarded": {
+                "__typename": "SetUserIsOnboardedOutput",
+                "responseContext": response_context(),
+            }
+        }
+    })
+}
+
+/// The `GetReferralInfo` query: referrals do not exist here.
+pub(crate) fn referral_info_response() -> Value {
+    json!({
+        "data": {
+            "user": {
+                "__typename": "UserOutput",
+                "user": {
+                    "referrals": {
+                        "referralCode": "",
+                        "numberClaimed": 0,
+                        "isReferred": false,
+                    }
+                },
             }
         }
     })
