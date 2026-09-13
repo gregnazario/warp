@@ -79,12 +79,54 @@ pub async fn stream_completion(
     tools: &[ToolDef],
     on_delta: impl FnMut(Delta) -> Result<()>,
 ) -> Result<Usage> {
+    let mut llm = llm.clone();
+    ensure_provider_headers(&mut llm, system, messages);
     match llm.schema {
-        LlmSchema::Openai => openai::stream(client, llm, system, messages, tools, on_delta).await,
+        LlmSchema::Openai => openai::stream(client, &llm, system, messages, tools, on_delta).await,
         LlmSchema::Anthropic => {
-            anthropic::stream(client, llm, system, messages, tools, on_delta).await
+            anthropic::stream(client, &llm, system, messages, tools, on_delta).await
         }
-        LlmSchema::Chatgpt => chatgpt::stream(client, llm, system, messages, tools, on_delta).await,
+        LlmSchema::Chatgpt => {
+            chatgpt::stream(client, &llm, system, messages, tools, on_delta).await
+        }
+    }
+}
+
+/// Providers that require identification headers on every request. OpenCode's
+/// Console Go endpoint answers 400 `MissingSessionID` without an
+/// `x-opencode-session` header; the referer/title identify the caller.
+/// The session id is derived from the conversation content so every round of
+/// one conversation shares an id (their routing cache expects that) without
+/// the server keeping per-conversation state.
+fn ensure_provider_headers(llm: &mut ResolvedLlm, system: &str, messages: &[LlmMessage]) {
+    if !llm.base_url.contains("opencode.ai") {
+        return;
+    }
+    fn has(llm: &ResolvedLlm, name: &str) -> bool {
+        llm.headers
+            .iter()
+            .any(|(header, _)| header.eq_ignore_ascii_case(name))
+    }
+    if !has(llm, "x-opencode-session") {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        system.hash(&mut hasher);
+        for message in messages {
+            hasher.write(format!("{message:?}").as_bytes());
+        }
+        llm.headers.push((
+            "x-opencode-session".to_owned(),
+            format!("praw-{:016x}", hasher.finish()),
+        ));
+    }
+    if !has(llm, "https-referer") {
+        llm.headers.push((
+            "https-referer".to_owned(),
+            "https://opencode.ai/".to_owned(),
+        ));
+    }
+    if !has(llm, "x-title") {
+        llm.headers.push(("x-title".to_owned(), "PRAW".to_owned()));
     }
 }
 

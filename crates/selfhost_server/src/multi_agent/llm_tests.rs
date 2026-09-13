@@ -550,3 +550,62 @@ fn completions_url_does_not_double_the_endpoint_suffix() {
         "https://host/v1/chat/completions",
     );
 }
+
+#[test]
+fn opencode_endpoints_get_session_headers() {
+    use super::{LlmMessage, ensure_provider_headers};
+    use crate::config::{LlmSchema, ResolvedLlm};
+
+    let mut llm = ResolvedLlm {
+        base_url: "https://opencode.ai/zen/go/v1/chat/completions".to_owned(),
+        api_key: None,
+        schema: LlmSchema::Openai,
+        model: "glm-5.2".to_owned(),
+        endpoint: None,
+        dynamic_auth: None,
+        account_id: None,
+        headers: Vec::new(),
+    };
+    let messages = vec![LlmMessage::User {
+        text: "hello".to_owned(),
+        images: Vec::new(),
+    }];
+    ensure_provider_headers(&mut llm, "system prompt", &messages);
+
+    let header = |name: &str| {
+        llm.headers
+            .iter()
+            .find(|(header, _)| header.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.clone())
+    };
+    let session = header("x-opencode-session").expect("session header added");
+    assert!(session.starts_with("praw-"));
+    assert_eq!(
+        header("https-referer").as_deref(),
+        Some("https://opencode.ai/")
+    );
+    assert_eq!(header("x-title").as_deref(), Some("PRAW"));
+
+    // Same conversation => same session id across rounds.
+    let mut round_two = llm.clone();
+    round_two.headers.clear();
+    ensure_provider_headers(&mut round_two, "system prompt", &messages);
+    assert_eq!(
+        round_two
+            .headers
+            .iter()
+            .find(|(h, _)| h.eq_ignore_ascii_case("x-opencode-session"))
+            .map(|(_, v)| v.clone()),
+        Some(session)
+    );
+
+    // Different conversation => different session id; non-OpenCode hosts are
+    // left untouched.
+    let mut other = ResolvedLlm {
+        base_url: "https://api.z.ai/api/coding/paas/v4".to_owned(),
+        ..llm.clone()
+    };
+    other.headers.clear();
+    ensure_provider_headers(&mut other, "system prompt", &messages);
+    assert!(other.headers.is_empty());
+}
