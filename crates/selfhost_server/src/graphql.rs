@@ -109,7 +109,21 @@ async fn catalog_models(state: &AppState) -> Vec<String> {
     let mut cache = state.model_cache.lock().expect("model cache lock");
     cache.refreshed_at = Some(Instant::now());
     if !probed.is_empty() {
+        // Provider-catalog models must survive a local re-probe; they are
+        // not served by the local backend.
+        let providers: Vec<String> = state
+            .config
+            .provider_catalog
+            .values()
+            .flatten()
+            .cloned()
+            .collect();
         cache.models = probed;
+        for model in providers {
+            if !cache.models.iter().any(|existing| existing == &model) {
+                cache.models.push(model);
+            }
+        }
     }
     if cache.models.is_empty()
         && let Some(single) = &state.config.llm_model

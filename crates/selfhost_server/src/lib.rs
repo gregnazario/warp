@@ -12,6 +12,7 @@ pub mod graphql;
 pub mod metrics;
 pub mod multi_agent;
 pub mod oauth;
+pub mod provider_catalog;
 pub mod relevant_files;
 pub mod transcribe;
 pub mod websearch;

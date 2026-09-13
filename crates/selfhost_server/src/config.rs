@@ -108,6 +108,10 @@ pub struct Config {
     /// response). This lets an external auth service (SSO, SSO gateways,
     /// Foundry-style auth brokers) own authentication instead of static keys.
     pub auth_introspect_url: Option<String>,
+    /// Live model lists fetched from each keyed provider at startup, keyed by
+    /// provider name (`"openai"`, ...). Models here appear in the client's
+    /// picker and route to their provider.
+    pub provider_catalog: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl Default for Config {
@@ -147,6 +151,7 @@ impl Default for Config {
                 .to_owned(),
             vertex_adc_path: None,
             auth_introspect_url: None,
+            provider_catalog: std::collections::HashMap::new(),
         }
     }
 }
@@ -311,6 +316,13 @@ impl Config {
             return resolved;
         }
 
+        // Models that arrived via a live provider catalog route to that
+        // provider; this covers ids the prefix rules can't distinguish
+        // (e.g. glm-5.2 served by OpenCode Zen rather than Z.ai).
+        if let Some(resolved) = self.catalog_route(&requested_model) {
+            return resolved;
+        }
+
         if let Some(resolved) = self.native_key_route(&requested_model) {
             return resolved;
         }
@@ -470,6 +482,60 @@ impl Config {
         None
     }
 
+    fn catalog_route(&self, requested_model: &str) -> Option<ResolvedLlm> {
+        for (name, models) in &self.provider_catalog {
+            if !models.iter().any(|model| model == requested_model) {
+                continue;
+            }
+            let Ok(kind) = name.parse::<ProviderKind>() else {
+                continue;
+            };
+            // Only providers whose credentials this server actually holds;
+            // the catalog is only populated for keyed providers anyway.
+            let has_key = match &kind {
+                ProviderKind::Openai => self.openai_api_key.as_deref(),
+                ProviderKind::Anthropic => self.anthropic_api_key.as_deref(),
+                ProviderKind::Google => self.google_api_key.as_deref(),
+                ProviderKind::Xai => self.xai_api_key.as_deref(),
+                ProviderKind::Zai => self.zai_api_key.as_deref(),
+                ProviderKind::Opencode => self.opencode_api_key.as_deref(),
+                ProviderKind::OpenRouter => self.openrouter_api_key.as_deref(),
+                ProviderKind::Chatgpt | ProviderKind::AzureFoundry | ProviderKind::Vertex => None,
+            };
+            let Some(key) = has_key.filter(|key| !key.trim().is_empty()) else {
+                continue;
+            };
+            let base_url = match &kind {
+                ProviderKind::Openai => "https://api.openai.com/v1",
+                ProviderKind::Anthropic => "https://api.anthropic.com/v1",
+                ProviderKind::Google => "https://generativelanguage.googleapis.com/v1beta/openai",
+                ProviderKind::Xai => "https://api.x.ai/v1",
+                ProviderKind::Zai => "https://api.z.ai/api/coding/paas/v4",
+                ProviderKind::Opencode => "https://opencode.ai/zen/v1",
+                ProviderKind::OpenRouter => "https://openrouter.ai/api/v1",
+                ProviderKind::Chatgpt | ProviderKind::AzureFoundry | ProviderKind::Vertex => {
+                    continue;
+                }
+            };
+            let schema = if matches!(kind, ProviderKind::Anthropic) {
+                LlmSchema::Anthropic
+            } else {
+                LlmSchema::Openai
+            };
+            return Some(ResolvedLlm {
+                base_url: base_url.to_owned(),
+                api_key: Some(key.to_owned()),
+                schema,
+                model: requested_model.to_owned(),
+                endpoint: None,
+                dynamic_auth: None,
+                account_id: None,
+                headers: Vec::new(),
+            });
+        }
+        None
+    }
+
     /// Routes to the explicitly configured `--provider`, when its credentials
     /// are present.
     fn explicit_provider_route(&self, requested_model: &str) -> Option<ResolvedLlm> {
@@ -516,9 +582,11 @@ impl Config {
                 &self.google_api_key,
                 LlmSchema::Openai,
             ),
-            ProviderKind::OpenRouter => {
-                static_provider("https://openrouter.ai/api/v1", &None, LlmSchema::Openai)
-            }
+            ProviderKind::OpenRouter => static_provider(
+                "https://openrouter.ai/api/v1",
+                &self.openrouter_api_key,
+                LlmSchema::Openai,
+            ),
             ProviderKind::Xai => {
                 static_provider("https://api.x.ai/v1", &self.xai_api_key, LlmSchema::Openai)
             }
@@ -699,6 +767,7 @@ impl Config {
     /// they exercise.
     pub(crate) fn test_default() -> Self {
         Self {
+            provider_catalog: std::collections::HashMap::new(),
             llm_base_url: String::new(),
             llm_api_key: None,
             llm_schema: LlmSchema::Openai,

@@ -291,7 +291,52 @@ impl Args {
             }
         }
 
+        // Live provider catalogs: fetch each keyed provider's model list so
+        // its models appear in the picker and route correctly. Best-effort;
+        // static fallbacks (and prefix routing) still apply on failure.
+        let mut provider_catalog = std::collections::HashMap::new();
+        {
+            let http = reqwest::Client::new();
+            let mut keyed: Vec<(ProviderKind, String)> = Vec::new();
+            for (kind, key) in [
+                (ProviderKind::Openai, &self.openai_api_key),
+                (ProviderKind::Anthropic, &self.anthropic_api_key),
+                (ProviderKind::Google, &self.google_api_key),
+                (ProviderKind::Xai, &self.xai_api_key),
+                (ProviderKind::Zai, &self.zai_api_key),
+                (ProviderKind::Opencode, &self.opencode_api_key),
+            ] {
+                if let Some(key) = key.as_deref().filter(|key| !key.trim().is_empty()) {
+                    keyed.push((kind, key.trim().to_owned()));
+                }
+            }
+            for (kind, key) in keyed {
+                let Some(endpoint) = selfhost_server::provider_catalog::endpoint_for(&kind) else {
+                    continue;
+                };
+                let models =
+                    selfhost_server::provider_catalog::fetch_models(&http, &endpoint, &key).await;
+                if models.is_empty() {
+                    tracing::warn!("no model catalog from {kind:?}; static fallbacks apply");
+                    continue;
+                }
+                tracing::info!("{kind:?} catalog: {} model(s)", models.len());
+                provider_catalog.insert(format!("{kind:?}").to_lowercase(), models);
+            }
+        }
+
+        // Fetched provider models join the picker after locally detected
+        // models; the default stays the local backend's first model.
+        for models in provider_catalog.values() {
+            for model in models {
+                if !llm_models.contains(model) {
+                    llm_models.push(model.clone());
+                }
+            }
+        }
+
         Ok(Config {
+            provider_catalog,
             llm_base_url: self.llm_base_url.expect("set above"),
             llm_api_key: self.llm_api_key,
             llm_schema: self.llm_schema.parse()?,
