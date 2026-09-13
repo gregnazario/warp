@@ -396,6 +396,14 @@ async fn selfhost_straggler_stub_responses_decode_with_the_client_schema() {
     .await;
     let decoded: GraphQlResponse<warp_graphql::queries::user_github_info::UserGithubInfo> =
         serde_json::from_value(raw).expect("user github info must decode");
+    match decoded.data.expect("data present").user_github_info {
+        warp_graphql::queries::user_github_info::UserGithubInfoResult::GithubAuthRequiredOutput(
+            auth,
+        ) => {
+            assert!(auth.auth_url.is_empty());
+        }
+        _ => panic!("github info should decode as auth-required"),
+    }
 
     // GetConversationUsage
     let raw = post(
@@ -406,6 +414,12 @@ async fn selfhost_straggler_stub_responses_decode_with_the_client_schema() {
     let decoded: GraphQlResponse<
         warp_graphql::queries::get_conversation_usage::GetConversationUsage,
     > = serde_json::from_value(raw).expect("conversation usage must decode");
+    match decoded.data.expect("data present").user {
+        warp_graphql::queries::get_conversation_usage::UserResult::UserOutput(output) => {
+            assert!(output.user.conversation_usage.is_empty());
+        }
+        _ => panic!("conversation usage decoded as Unknown"),
+    }
 
     // SetUserIsOnboarded
     let raw = post(
@@ -416,6 +430,7 @@ async fn selfhost_straggler_stub_responses_decode_with_the_client_schema() {
     let decoded: GraphQlResponse<
         warp_graphql::mutations::set_user_is_onboarded::SetUserIsOnboarded,
     > = serde_json::from_value(raw).expect("set user is onboarded must decode");
+    assert!(decoded.data.is_some());
 
     // GetReferralInfo
     let raw = post(
@@ -425,6 +440,12 @@ async fn selfhost_straggler_stub_responses_decode_with_the_client_schema() {
     .await;
     let decoded: GraphQlResponse<warp_graphql::queries::get_referral_info::GetReferralInfo> =
         serde_json::from_value(raw).expect("referral info must decode");
+    match decoded.data.expect("data present").user {
+        warp_graphql::queries::get_referral_info::UserResult::UserOutput(output) => {
+            assert_eq!(output.user.referrals.number_claimed, 0);
+        }
+        _ => panic!("referral info decoded as Unknown"),
+    }
 
     // GetCloudEnvironmentsQuery
     let raw = post(
