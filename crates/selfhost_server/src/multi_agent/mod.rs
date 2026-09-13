@@ -718,7 +718,7 @@ fn handle_request(
         });
 
         let mut usage = None;
-        let failure = None;
+        let mut failure: Option<anyhow::Error> = None;
         while let Some(update) = rx.recv().await {
             match update {
                 LlmUpdate::Actions(actions) if !actions.is_empty() => {
@@ -732,7 +732,12 @@ fn handle_request(
                         .metrics
                         .usage(done_usage.input_tokens, done_usage.output_tokens);
                 }
-                LlmUpdate::Done(Err(_)) => state.metrics.agent_llm_error(),
+                LlmUpdate::Done(Err(error)) => {
+                    state.metrics.agent_llm_error();
+                    // Surfaced to the user as a Finished/InternalError event
+                    // below; without this the stream just ends silently.
+                    failure = Some(error);
+                }
             }
         }
         let _ = worker.await;

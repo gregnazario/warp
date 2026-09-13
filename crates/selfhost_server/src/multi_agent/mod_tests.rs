@@ -853,3 +853,52 @@ async fn metrics_endpoint_reports_counters() {
         "token counters should exist: {metrics}"
     );
 }
+
+#[tokio::test]
+async fn llm_endpoint_errors_reach_the_client_as_finished_events() {
+    // A provider answering 400 with a reason (the shape of the OpenCode
+    // MissingSessionID failure) must surface in the event stream, not just
+    // end it.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let llm_addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/v1/chat/completions",
+            axum::routing::post(|| async {
+                (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    r#"{"type":"error","error":{"type":"MissingSessionID","message":"Request is missing x-opencode-session"}}"#,
+                )
+            }),
+        );
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let app = router(test_config(llm_addr));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let response = post_request(addr, "/ai/multi-agent", &user_query_request("hello"), None)
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let events = decode_events(&response.text().await.unwrap());
+
+    let last = events.last().expect("stream must finish");
+    let api::response_event::Type::Finished(finished) = last.r#type.as_ref().unwrap() else {
+        panic!("last event must be Finished: {last:?}");
+    };
+    let api::response_event::stream_finished::Reason::InternalError(error) =
+        finished.reason.as_ref().unwrap()
+    else {
+        panic!("failure must carry InternalError: {finished:?}");
+    };
+    assert!(
+        error.message.contains("400") && error.message.contains("MissingSessionID"),
+        "the provider's status and reason must reach the user: {}",
+        error.message
+    );
+}
