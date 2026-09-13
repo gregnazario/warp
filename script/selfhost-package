@@ -204,8 +204,11 @@ Run .../selfhost_server --doctor to check detection, keys, and ports.
 
 Cloud providers (optional):
   --provider chatgpt         first run --codex-login to sign in with ChatGPT
-  --provider azure-foundry   --azure-tenant/--azure-client-id/--azure-client-secret/--azure-foundry-url
-  --provider vertex --vertex gcloud auth application-default login
+  --provider meta            --meta-api-key (Muse Spark: muse-spark-*)
+  --provider azure-foundry   --foundry-login --azure-foundry-url <url> once, or a
+                             service principal via --azure-tenant/--azure-client-id/--azure-client-secret
+  --provider vertex --vertex --vertex-login once (device login), or gcloud
+                             auth application-default login
   --provider zai|opencode|xai|openai|anthropic|google|openrouter  with --<name>-api-key
   Client BYOK keys (Settings > API Keys) route to the matching provider by
   default; custom endpoints in the client always take precedence

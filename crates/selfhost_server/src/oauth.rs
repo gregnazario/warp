@@ -15,6 +15,7 @@ pub async fn resolve_token(
 ) -> Result<String> {
     let cache_key = match auth {
         DynamicAuth::AzureClientCredentials { .. } => "azure-foundry",
+        DynamicAuth::AzureDeviceCode { .. } => "azure-foundry-device",
         DynamicAuth::VertexAdc { .. } => "vertex",
     };
     if let Ok(entries) = cache.lock()
@@ -51,6 +52,20 @@ pub async fn resolve_token(
                 ("refresh_token", refresh_token.clone()),
                 ("client_id", client_id.clone()),
                 ("client_secret", client_secret.clone()),
+            ],
+        ),
+        DynamicAuth::AzureDeviceCode {
+            token_url,
+            client_id,
+            scope,
+            refresh_token,
+        } => (
+            token_url.clone(),
+            vec![
+                ("grant_type", "refresh_token".to_owned()),
+                ("refresh_token", refresh_token.clone()),
+                ("client_id", client_id.clone()),
+                ("scope", scope.clone()),
             ],
         ),
     };

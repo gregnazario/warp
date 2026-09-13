@@ -87,6 +87,22 @@ struct Args {
     /// exit. Required once before `--provider chatgpt`.
     #[arg(long, default_value_t = false)]
     codex_login: bool,
+    /// Run the Azure Foundry device-login flow now (work account), save the
+    /// refresh grant, and exit. Required once before `--provider
+    /// azure-foundry` unless a service principal is configured; still needs
+    /// `--azure-foundry-url`.
+    #[arg(long, default_value_t = false)]
+    foundry_login: bool,
+    /// Where the Foundry device-login grant is cached (default
+    /// ~/.cache/selfhost-server/foundry-tokens.json).
+    #[arg(long)]
+    foundry_token_file: Option<String>,
+    /// Run the Google device-login flow now and write gcloud-style
+    /// application-default credentials, then exit. Required once before
+    /// `--provider vertex` (unless you already ran
+    /// `gcloud auth application-default login`).
+    #[arg(long, default_value_t = false)]
+    vertex_login: bool,
     /// Where Codex OAuth tokens are cached (default
     /// ~/.cache/selfhost-server/codex-tokens.json).
     #[arg(long)]
@@ -132,6 +148,10 @@ struct Args {
     /// id containing `/`.
     #[arg(long, env = "SELFHOST_OPENROUTER_API_KEY")]
     openrouter_api_key: Option<String>,
+    /// Meta Model API key (https://api.meta.ai/v1); serves the Muse Spark
+    /// family (`muse-spark-*`).
+    #[arg(long, env = "SELFHOST_META_API_KEY")]
+    meta_api_key: Option<String>,
 
     /// Azure tenant for Azure AI Foundry Entra-ID authentication.
     #[arg(long)]
@@ -235,6 +255,84 @@ impl Args {
             None => None,
         };
 
+        if self.vertex_login {
+            let http = reqwest::Client::new();
+            let flow = selfhost_server::device_login::gcloud_flow();
+            let adc_path = self
+                .vertex_adc_path
+                .clone()
+                .unwrap_or_else(selfhost_server::config::default_adc_path);
+            let grant = selfhost_server::device_login::run(&http, &flow, |url, user_code| {
+                println!("Visit {url} and enter code {user_code}");
+                let _ = command::blocking::Command::new("open").arg(url).spawn();
+            })
+            .await?;
+            let refresh_token = grant
+                .refresh_token
+                .context("Google did not return a refresh token; re-run --vertex-login")?;
+            std::fs::create_dir_all(
+                std::path::Path::new(&adc_path)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .ok();
+            std::fs::write(
+                &adc_path,
+                serde_json::json!({
+                    "type": "authorized_user",
+                    "client_id": selfhost_server::device_login::GCLOUD_CLIENT_ID,
+                    "client_secret": selfhost_server::device_login::GCLOUD_CLIENT_SECRET,
+                    "refresh_token": refresh_token,
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                })
+                .to_string(),
+            )
+            .with_context(|| format!("failed to write {adc_path}"))?;
+            println!("Application-default credentials saved to {adc_path}.");
+            std::process::exit(0);
+        }
+
+        if self.foundry_login {
+            let foundry_url = self
+                .azure_foundry_url
+                .clone()
+                .context("--foundry-login also needs --azure-foundry-url")?;
+            let http = reqwest::Client::new();
+            let flow = selfhost_server::device_login::azure_foundry_flow();
+            let grant = selfhost_server::device_login::run(&http, &flow, |url, user_code| {
+                println!("Visit {url} and enter code {user_code}");
+                let _ = command::blocking::Command::new("open").arg(url).spawn();
+            })
+            .await?;
+            let refresh_token = grant
+                .refresh_token
+                .context("Entra ID did not return a refresh token; re-run --foundry-login")?;
+            let token_file = self
+                .foundry_token_file
+                .clone()
+                .unwrap_or_else(default_foundry_token_file);
+            std::fs::create_dir_all(
+                std::path::Path::new(&token_file)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .ok();
+            std::fs::write(
+                &token_file,
+                serde_json::json!({
+                    "token_url": flow.token_url,
+                    "client_id": flow.client_id,
+                    "scope": flow.scope,
+                    "refresh_token": refresh_token,
+                    "foundry_url": foundry_url,
+                })
+                .to_string(),
+            )
+            .with_context(|| format!("failed to write {token_file}"))?;
+            println!("Foundry grant saved to {token_file}.");
+            std::process::exit(0);
+        }
+
         let codex_token_file = self
             .codex_token_file
             .unwrap_or_else(selfhost_server::codex::default_token_file);
@@ -290,6 +388,13 @@ impl Args {
                 }
             }
         }
+        if self.meta_api_key.is_some() {
+            for model in ["muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1"] {
+                if !llm_models.iter().any(|existing| existing == model) {
+                    llm_models.push(model.to_owned());
+                }
+            }
+        }
 
         // Live provider catalogs: fetch each keyed provider's model list so
         // its models appear in the picker and route correctly. Best-effort;
@@ -305,6 +410,7 @@ impl Args {
                 (ProviderKind::Xai, &self.xai_api_key),
                 (ProviderKind::Zai, &self.zai_api_key),
                 (ProviderKind::Opencode, &self.opencode_api_key),
+                (ProviderKind::Meta, &self.meta_api_key),
             ] {
                 if let Some(key) = key.as_deref().filter(|key| !key.trim().is_empty()) {
                     keyed.push((kind, key.trim().to_owned()));
@@ -358,10 +464,19 @@ impl Args {
             zai_api_key: self.zai_api_key.filter(|key| !key.is_empty()),
             opencode_api_key: self.opencode_api_key.filter(|key| !key.is_empty()),
             openrouter_api_key: self.openrouter_api_key.filter(|key| !key.is_empty()),
+            meta_api_key: self.meta_api_key.filter(|key| !key.is_empty()),
+            foundry_oauth: load_foundry_oauth(
+                &self.foundry_token_file,
+                self.azure_client_secret.is_none(),
+            ),
             azure_tenant: self.azure_tenant,
             azure_client_id: self.azure_client_id,
             azure_client_secret: self.azure_client_secret,
-            azure_foundry_url: self.azure_foundry_url.filter(|url| !url.is_empty()),
+            azure_foundry_url: self
+                .azure_foundry_url
+                .clone()
+                .filter(|url| !url.is_empty())
+                .or_else(|| foundry_file_url(&self.foundry_token_file)),
             azure_api_version: self.azure_api_version,
             vertex_enabled: self.vertex,
             vertex_base_url: self.vertex_base_url,
@@ -371,6 +486,46 @@ impl Args {
             auth_introspect_url: self.auth_introspect_url.filter(|url| !url.is_empty()),
         })
     }
+}
+
+fn default_foundry_token_file() -> String {
+    format!(
+        "{}/.cache/selfhost-server/foundry-tokens.json",
+        std::env::var("HOME").unwrap_or_default()
+    )
+}
+
+/// The `--azure-foundry-url` saved by `--foundry-login`, so later runs do
+/// not need to repeat the flag.
+fn foundry_file_url(token_file: &Option<String>) -> Option<String> {
+    let path = token_file
+        .clone()
+        .unwrap_or_else(default_foundry_token_file);
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    file["foundry_url"].as_str().map(ToOwned::to_owned)
+}
+
+/// Loads the `--foundry-login` refresh grant. A service principal (when
+/// configured) always wins; the grant is only used without one.
+fn load_foundry_oauth(
+    token_file: &Option<String>,
+    no_principal: bool,
+) -> Option<selfhost_server::config::DynamicAuth> {
+    if !no_principal {
+        return None;
+    }
+    let path = token_file
+        .clone()
+        .unwrap_or_else(default_foundry_token_file);
+    let file = std::fs::read_to_string(&path).ok()?;
+    let file: serde_json::Value = serde_json::from_str(&file).ok()?;
+    Some(selfhost_server::config::DynamicAuth::AzureDeviceCode {
+        token_url: file["token_url"].as_str()?.to_owned(),
+        client_id: file["client_id"].as_str()?.to_owned(),
+        scope: file["scope"].as_str()?.to_owned(),
+        refresh_token: file["refresh_token"].as_str()?.to_owned(),
+    })
 }
 
 #[tokio::main]
@@ -450,6 +605,7 @@ async fn doctor(args: &Args) {
         ("zai", &args.zai_api_key),
         ("opencode", &args.opencode_api_key),
         ("openrouter", &args.openrouter_api_key),
+        ("meta", &args.meta_api_key),
     ] {
         match key.as_deref().filter(|key| !key.is_empty()) {
             Some(key) => println!("  ok  {name} key set ({})", mask_key(key)),

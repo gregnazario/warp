@@ -74,8 +74,9 @@ carry a client BYO key are also routed natively by model name:
 | OpenCode Zen  | `--opencode-api-key` (required headers sent by default)  |
 | OpenRouter    | `--openrouter-api-key` (routes any `vendor/model` id)    |
 | ChatGPT/Codex | `--codex-login` once, then `--provider chatgpt`          |
-| Azure Foundry | `--azure-tenant/--azure-client-id/--azure-client-secret/--azure-foundry-url` |
-| Google Vertex | `--vertex` after `gcloud auth application-default login` |
+| Meta Muse Spark | `--meta-api-key` (api.meta.ai; `muse-spark-*` models)   |
+| Azure Foundry | `--foundry-login --azure-foundry-url <url>` once (work-account device login), then `--provider azure-foundry` — or a service principal via `--azure-tenant/--azure-client-id/--azure-client-secret` |
+| Google Vertex | `--vertex-login` once (device login), then `--provider vertex` — or existing `gcloud auth application-default login` credentials |
 
 See `crates/selfhost_server/README.md` for the full flag reference.
 

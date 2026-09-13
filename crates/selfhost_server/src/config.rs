@@ -89,6 +89,11 @@ pub struct Config {
     pub opencode_api_key: Option<String>,
     /// OpenRouter API key (https://openrouter.ai/api/v1).
     pub openrouter_api_key: Option<String>,
+    /// Meta Model API key (https://api.meta.ai/v1), serving Muse Spark.
+    pub meta_api_key: Option<String>,
+    /// Refresh grant from `--foundry-login`, used for Azure Foundry routing
+    /// when no service principal is configured.
+    pub foundry_oauth: Option<DynamicAuth>,
     /// Azure AI Foundry (Entra ID client-credentials OAuth).
     pub azure_tenant: Option<String>,
     pub azure_client_id: Option<String>,
@@ -140,6 +145,8 @@ impl Default for Config {
             zai_api_key: None,
             opencode_api_key: None,
             openrouter_api_key: None,
+            meta_api_key: None,
+            foundry_oauth: None,
             azure_tenant: None,
             azure_client_id: None,
             azure_client_secret: None,
@@ -192,6 +199,7 @@ pub enum ProviderKind {
     Opencode,
     AzureFoundry,
     Vertex,
+    Meta,
 }
 
 impl std::str::FromStr for ProviderKind {
@@ -209,6 +217,7 @@ impl std::str::FromStr for ProviderKind {
             "opencode" => Ok(Self::Opencode),
             "azure-foundry" | "foundry" | "azure" => Ok(Self::AzureFoundry),
             "vertex" => Ok(Self::Vertex),
+            "meta" | "muse" | "muse-spark" => Ok(Self::Meta),
             other => anyhow::bail!("unknown provider '{other}'"),
         }
     }
@@ -250,6 +259,12 @@ pub enum DynamicAuth {
         scope: String,
     },
     /// Google Vertex AI via gcloud application-default credentials.
+    AzureDeviceCode {
+        token_url: String,
+        client_id: String,
+        scope: String,
+        refresh_token: String,
+    },
     VertexAdc {
         token_url: String,
         client_id: String,
@@ -466,6 +481,20 @@ impl Config {
         }
 
         if self
+            .meta_api_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty())
+            && model.starts_with("muse")
+        {
+            return mk(
+                "https://api.meta.ai/v1",
+                self.meta_api_key.as_deref().unwrap_or_default(),
+                LlmSchema::Openai,
+                Vec::new(),
+            );
+        }
+
+        if self
             .openrouter_api_key
             .as_deref()
             .is_some_and(|key| !key.trim().is_empty())
@@ -500,6 +529,7 @@ impl Config {
                 ProviderKind::Zai => self.zai_api_key.as_deref(),
                 ProviderKind::Opencode => self.opencode_api_key.as_deref(),
                 ProviderKind::OpenRouter => self.openrouter_api_key.as_deref(),
+                ProviderKind::Meta => self.meta_api_key.as_deref(),
                 ProviderKind::Chatgpt | ProviderKind::AzureFoundry | ProviderKind::Vertex => None,
             };
             let Some(key) = has_key.filter(|key| !key.trim().is_empty()) else {
@@ -513,6 +543,7 @@ impl Config {
                 ProviderKind::Zai => "https://api.z.ai/api/coding/paas/v4",
                 ProviderKind::Opencode => "https://opencode.ai/zen/v1",
                 ProviderKind::OpenRouter => "https://openrouter.ai/api/v1",
+                ProviderKind::Meta => "https://api.meta.ai/v1",
                 ProviderKind::Chatgpt | ProviderKind::AzureFoundry | ProviderKind::Vertex => {
                     continue;
                 }
@@ -600,17 +631,41 @@ impl Config {
                 &self.opencode_api_key,
                 LlmSchema::Openai,
             ),
+            ProviderKind::Meta => static_provider(
+                "https://api.meta.ai/v1",
+                &self.meta_api_key,
+                LlmSchema::Openai,
+            ),
             ProviderKind::AzureFoundry => {
                 let foundry_url = self
                     .azure_foundry_url
                     .as_ref()
                     .filter(|url| !url.is_empty())?;
-                let tenant = self.azure_tenant.as_ref().filter(|t| !t.is_empty())?;
-                let client_id = self.azure_client_id.as_ref().filter(|id| !id.is_empty())?;
-                let client_secret = self
+                // Either a full service principal or the refresh grant from
+                // `--foundry-login` authenticates; a half-configured
+                // principal falls through.
+                let dynamic_auth = self
                     .azure_client_secret
                     .as_ref()
-                    .filter(|secret| !secret.is_empty())?;
+                    .filter(|secret| !secret.is_empty())
+                    .zip(self.azure_tenant.as_ref().filter(|t| !t.is_empty()))
+                    .zip(self.azure_client_id.as_ref().filter(|id| !id.is_empty()))
+                    .map(
+                        |((secret, tenant), client_id)| DynamicAuth::AzureClientCredentials {
+                            token_url: format!(
+                                "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+                            ),
+                            client_id: client_id.clone(),
+                            client_secret: secret.clone(),
+                            scope: "https://cognitiveservices.azure.com/.default".to_owned(),
+                        },
+                    )
+                    .or_else(|| {
+                        self.foundry_oauth.as_ref().and_then(|auth| match auth {
+                            DynamicAuth::AzureDeviceCode { .. } => Some(auth.clone()),
+                            _ => None,
+                        })
+                    })?;
                 Some(ResolvedLlm {
                     base_url: format!(
                         "{}/chat/completions?api-version={}",
@@ -622,14 +677,7 @@ impl Config {
                     model: model(),
                     endpoint: None,
                     account_id: None,
-                    dynamic_auth: Some(DynamicAuth::AzureClientCredentials {
-                        token_url: format!(
-                            "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-                        ),
-                        client_id: client_id.clone(),
-                        client_secret: client_secret.clone(),
-                        scope: "https://cognitiveservices.azure.com/.default".to_owned(),
-                    }),
+                    dynamic_auth: Some(dynamic_auth),
                     headers: Vec::new(),
                 })
             }
@@ -790,6 +838,8 @@ impl Config {
             zai_api_key: None,
             opencode_api_key: None,
             openrouter_api_key: None,
+            meta_api_key: None,
+            foundry_oauth: None,
             azure_tenant: None,
             azure_client_id: None,
             azure_client_secret: None,

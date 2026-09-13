@@ -65,6 +65,7 @@ fn curated_providers_have_endpoints() {
         ProviderKind::Xai,
         ProviderKind::Zai,
         ProviderKind::Opencode,
+        ProviderKind::Meta,
     ] {
         assert!(endpoint_for(&kind).is_some(), "{kind:?} needs an endpoint");
     }

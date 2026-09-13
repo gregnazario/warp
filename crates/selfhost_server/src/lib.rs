@@ -8,6 +8,7 @@
 pub mod codex;
 pub mod config;
 pub mod detect;
+pub mod device_login;
 pub mod graphql;
 pub mod metrics;
 pub mod multi_agent;

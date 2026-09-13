@@ -49,6 +49,11 @@ pub fn endpoint_for(kind: &ProviderKind) -> Option<CatalogEndpoint> {
             schema: LlmSchema::Openai,
             chat_prefixes: &[],
         }),
+        ProviderKind::Meta => Some(CatalogEndpoint {
+            base_url: "https://api.meta.ai/v1",
+            schema: LlmSchema::Openai,
+            chat_prefixes: &["muse"],
+        }),
         // OpenRouter's catalog is hundreds of models; fetching it wholesale
         // would flood the picker. It stays route-only (any `vendor/model` id).
         ProviderKind::OpenRouter

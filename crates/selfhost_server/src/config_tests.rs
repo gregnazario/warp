@@ -74,3 +74,39 @@ fn custom_endstants_win_over_byok() {
     assert_eq!(resolved.base_url, "https://my-router.example/v1");
     assert_eq!(resolved.model, "some/model");
 }
+
+#[test]
+fn meta_key_routes_muse_models() {
+    let config = Config {
+        meta_api_key: Some("meta-key".to_owned()),
+        ..Default::default()
+    };
+    let resolved = config.resolve_llm("muse-spark-1.3", None, None);
+    assert_eq!(resolved.base_url, "https://api.meta.ai/v1");
+    assert_eq!(resolved.api_key.as_deref(), Some("meta-key"));
+}
+
+#[test]
+fn foundry_device_grant_routes_without_a_principal() {
+    let config = Config {
+        provider: Some(crate::config::ProviderKind::AzureFoundry),
+        azure_foundry_url: Some("https://my-resource.services.ai.azure.com/models".to_owned()),
+        foundry_oauth: Some(crate::config::DynamicAuth::AzureDeviceCode {
+            token_url: "https://login.microsoftonline.com/organizations/oauth2/v2.0/token"
+                .to_owned(),
+            client_id: "cli-client".to_owned(),
+            scope: "https://cognitiveservices.azure.com/.default".to_owned(),
+            refresh_token: "rt".to_owned(),
+        }),
+        ..Default::default()
+    };
+    let resolved = config.resolve_llm("gpt-5", None, None);
+    assert_eq!(
+        resolved.base_url,
+        "https://my-resource.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview"
+    );
+    assert!(matches!(
+        resolved.dynamic_auth,
+        Some(crate::config::DynamicAuth::AzureDeviceCode { .. })
+    ));
+}
