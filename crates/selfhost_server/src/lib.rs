@@ -7,6 +7,7 @@
 //! wrapper over this library.
 pub mod codex;
 pub mod config;
+pub mod config_file;
 pub mod detect;
 pub mod device_login;
 pub mod graphql;

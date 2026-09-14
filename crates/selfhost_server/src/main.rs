@@ -15,6 +15,16 @@ use selfhost_server::{Config, detect};
 #[derive(Debug, Parser)]
 #[command(name = "selfhost-server")]
 struct Args {
+    /// Persistent config file. Flags and SELFHOST_* environment variables
+    /// override it; defaults to the file beside the UI's data
+    /// (~/Library/Application Support/dev.parw.PRAW/server.toml on macOS).
+    #[arg(long)]
+    config: Option<String>,
+
+    /// Print the config path in use and whether a file was found, then exit.
+    #[arg(long, default_value_t = false)]
+    print_config: bool,
+
     /// Address to bind the server to.
     #[arg(long, default_value = "127.0.0.1:8080")]
     bind: String,
@@ -537,9 +547,35 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let args = Args::parse();
+    // The persistent config sits underneath flags and env: expand it into
+    // argv entries for anything neither provides.
+    let config_path = std::env::args()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find_map(|pair| {
+            pair[0]
+                .strip_prefix("--config=")
+                .map(ToOwned::to_owned)
+                .or((pair[0] == "--config").then(|| pair[1].clone()))
+        })
+        .or_else(|| std::env::var(selfhost_server::config_file::CONFIG_PATH_ENV).ok())
+        .unwrap_or_else(selfhost_server::config_file::default_path);
+    let argv = std::env::args().collect::<Vec<_>>();
+    let expanded = selfhost_server::config_file::expand(&config_path, &argv)
+        .with_context(|| format!("invalid config file {config_path}"))?;
+    let file_found = std::path::Path::new(&config_path).is_file();
+    let args = Args::parse_from(expanded);
+    if args.print_config {
+        println!(
+            "{} ({})",
+            config_path,
+            if file_found { "found" } else { "not present" }
+        );
+        return Ok(());
+    }
+    tracing::info!(path = %config_path, found = file_found, "server config");
     if args.doctor {
-        doctor(&args).await;
+        doctor(&args, &config_path, file_found).await;
         return Ok(());
     }
     let bind_addr: SocketAddr = args
@@ -560,8 +596,9 @@ async fn main() -> Result<()> {
 /// One-stop diagnostics for "why doesn't agent mode work": which local LLM
 /// backends answer, which provider integrations are configured, and whether
 /// the server can take its port. Informational only — always exits 0.
-async fn doctor(args: &Args) {
+async fn doctor(args: &Args, config_path: &str, file_found: bool) {
     println!("PRAW backend doctor (v{})", env!("CARGO_PKG_VERSION"));
+    let config_path = config_path.to_owned();
 
     println!("\nLocal LLM backends:");
     let http = reqwest::Client::new();
@@ -654,6 +691,11 @@ async fn doctor(args: &Args) {
     );
 
     println!("\nServer:");
+    println!(
+        "  {}  config {}",
+        if file_found { "ok" } else { "--" },
+        config_path
+    );
     println!("  --  bind address {}", args.bind);
     let bind_check: SocketAddr = args
         .bind

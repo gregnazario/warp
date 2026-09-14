@@ -8,6 +8,7 @@
 #   praw doctor    run the bundled selfhost_server --doctor
 #   praw logs      follow the backend log
 #   praw update    install the latest release over the local PRAW.app
+#   praw config    show (or create a template) server.toml beside the UI data
 #
 # Environment:
 #   PRAW_APP          path to PRAW.app (otherwise searched)
@@ -159,6 +160,66 @@ cmd_update() {
     fi
 }
 
+
+CONFIG_PATH="${PRAW_SERVER_CONFIG:-$HOME/Library/Application Support/dev.parw.PRAW/server.toml}"
+
+cmd_config() {
+    if [[ "${1:-}" == "--init" ]]; then
+        if [[ -f "$CONFIG_PATH" ]]; then
+            echo "Config already exists at $CONFIG_PATH"
+            return 0
+        fi
+        mkdir -p "$(dirname "$CONFIG_PATH")"
+        cat > "$CONFIG_PATH" <<'TEMPLATE'
+# PRAW server config. CLI flags and SELFHOST_* environment variables
+# override anything set here. Restart the backend (praw stop && praw start)
+# after editing. All keys are optional.
+
+#bind = "127.0.0.1:48080"
+#llm_backend = "auto"            # auto | ollama | lmstudio | mlx
+#llm_base_url = ""               # any OpenAI/Anthropic-compatible endpoint
+#llm_model = ""
+#llm_models = ["model-a", "model-b"]
+#llm_api_key = ""
+#provider = ""                   # openai|anthropic|google|xai|zai|opencode|openrouter|meta|azure-foundry|vertex|chatgpt
+#byok_direct = true              # client BYOK keys route natively
+
+# Provider keys (one line each, uncomment what you use):
+#openai_api_key = ""
+#anthropic_api_key = ""
+#google_api_key = ""
+#xai_api_key = ""
+#zai_api_key = ""
+#opencode_api_key = ""
+#openrouter_api_key = ""
+#meta_api_key = ""
+
+# Azure Foundry (after --foundry-login, or full principal here):
+#azure_foundry_url = ""
+#azure_tenant = ""
+#azure_client_id = ""
+#azure_client_secret = ""
+
+#vertex = true                   # after --vertex-login
+
+#web_search_url = ""             # SearXNG endpoint
+#transcribe_base_url = ""         # OpenAI-compatible STT endpoint
+#transcribe_model = "whisper-1"
+#context_window_tokens = 0       # 0 = auto
+#api_key = ""                    # require clients to present this bearer
+TEMPLATE
+        echo "Created a commented template at $CONFIG_PATH"
+        echo "Edit it, then: praw stop && praw start"
+        return 0
+    fi
+    if [[ -f "$CONFIG_PATH" ]]; then
+        echo "$CONFIG_PATH (present):"
+        grep -vE '^\s*(#|$)' "$CONFIG_PATH" | sed -E 's/(key|secret|token)\s*=\s*".*"/\1 = "***"/'
+    else
+        echo "$CONFIG_PATH (not present — run 'praw config --init' for a template)"
+    fi
+}
+
 cmd_stop() {
     osascript -e 'tell application "PRAW" to quit' >/dev/null 2>&1 || true
     local pid
@@ -200,6 +261,7 @@ case "${1:-start}" in
     status) cmd_status ;;
     stop) cmd_stop ;;
     update) cmd_update ;;
+    config) shift; cmd_config "$@" ;;
     doctor) shift; cmd_doctor "$@" ;;
     logs) cmd_logs ;;
     help|-h|--help) usage 0 ;;

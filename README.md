@@ -93,6 +93,22 @@ WARP_SELF_HOSTED_SERVER_URL=http://127.0.0.1:8080 cargo run
 WARP_SELF_HOSTED_SERVER_URL=http://127.0.0.1:8080 ./script/run-tui
 ```
 
+### Persistent config
+
+Instead of repeating flags, put them in a TOML file beside the UI's data —
+on macOS `~/Library/Application Support/dev.parw.PRAW/server.toml` — and every
+backend start (app-launched or `praw start`) picks it up. Flags and
+`SELFHOST_*` environment variables override the file. `praw config --init`
+writes a commented template; `praw config` shows the effective settings with
+secrets masked.
+
+```toml
+provider = "meta"
+meta_api_key = "…"
+opencode_api_key = "…"
+byok_direct = true
+```
+
 `WARP_API_KEY` supplies the client credential (any value works unless the
 server is started with `--api-key`). Requests carrying client BYOK keys
 (Settings → API Keys) route straight to the matching provider by model
