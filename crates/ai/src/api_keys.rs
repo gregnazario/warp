@@ -334,11 +334,24 @@ impl schemars::JsonSchema for CustomEndpointDefinitions {
 }
 
 pub fn validate_custom_endpoint_url(value: &str) -> Result<(), &'static str> {
+    validate_endpoint_url(value, warp_core::channel::ChannelState::is_self_hosted())
+}
+
+fn validate_endpoint_url(value: &str, local_endpoints_allowed: bool) -> Result<(), &'static str> {
     let parsed = Url::parse(value).map_err(|_| "Invalid URL")?;
+    let host = || parsed.host_str().filter(|host| !host.is_empty());
+    // Self-hosted runs point at local model servers (Ollama, LM Studio,
+    // MLX-LM) over loopback or the LAN; plain HTTP is fine there.
+    if local_endpoints_allowed && host().is_some_and(is_restricted_host) {
+        if parsed.scheme() != "https" && parsed.scheme() != "http" {
+            return Err("URL must use HTTP or HTTPS");
+        }
+        return Ok(());
+    }
     if parsed.scheme() != "https" {
         return Err("URL must use HTTPS");
     }
-    let Some(host) = parsed.host_str().filter(|host| !host.is_empty()) else {
+    let Some(host) = host() else {
         return Err("URL must include a host");
     };
     if is_restricted_host(host) {

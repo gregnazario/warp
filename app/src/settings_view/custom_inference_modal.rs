@@ -21,7 +21,7 @@ use crate::editor::{
 };
 use crate::modal::{Modal, ModalViewState};
 use crate::ui_components::icons::Icon;
-use crate::view_components::action_button::{ActionButton, DangerSecondaryTheme};
+use crate::view_components::action_button::{ActionButton, DangerSecondaryTheme, SecondaryTheme};
 use crate::view_components::dropdown::DropdownEvent;
 use crate::view_components::{Dropdown, DropdownItem};
 
@@ -69,6 +69,32 @@ pub enum CustomEndpointModalEvent {
     },
 }
 
+/// One-click local backend presets for the custom-endpoint form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalEndpointPreset {
+    Ollama,
+    LmStudio,
+    Mlx,
+}
+
+impl LocalEndpointPreset {
+    fn display_name(&self) -> &'static str {
+        match self {
+            LocalEndpointPreset::Ollama => "Ollama",
+            LocalEndpointPreset::LmStudio => "LM Studio",
+            LocalEndpointPreset::Mlx => "MLX-LM",
+        }
+    }
+
+    fn base_url(&self) -> &'static str {
+        match self {
+            LocalEndpointPreset::Ollama => "http://127.0.0.1:11434/v1",
+            LocalEndpointPreset::LmStudio => "http://127.0.0.1:1234/v1",
+            LocalEndpointPreset::Mlx => "http://127.0.0.1:8080/v1",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CustomEndpointModalAction {
     Cancel,
@@ -77,6 +103,7 @@ pub enum CustomEndpointModalAction {
     RemoveModel(usize),
     RemoveEndpoint,
     SetSchema(CustomEndpointSchema),
+    ApplyLocalPreset(LocalEndpointPreset),
 }
 
 struct ModelRow {
@@ -97,6 +124,7 @@ pub struct CustomEndpointModal {
     save_button_mouse_state: MouseStateHandle,
     add_model_button_mouse_state: MouseStateHandle,
     remove_endpoint_button: ViewHandle<ActionButton>,
+    preset_buttons: Vec<ViewHandle<ActionButton>>,
     editing_index: Option<usize>,
     url_has_error: bool,
     scroll_state: ClippedScrollStateHandle,
@@ -265,6 +293,20 @@ impl CustomEndpointModal {
                     ctx.dispatch_typed_action(CustomEndpointModalAction::RemoveEndpoint);
                 })
         });
+        let preset_buttons = [
+            LocalEndpointPreset::Ollama,
+            LocalEndpointPreset::LmStudio,
+            LocalEndpointPreset::Mlx,
+        ]
+        .into_iter()
+        .map(|preset| {
+            ctx.add_typed_action_view(move |_| {
+                ActionButton::new(preset.display_name(), SecondaryTheme).on_click(move |ctx| {
+                    ctx.dispatch_typed_action(CustomEndpointModalAction::ApplyLocalPreset(preset));
+                })
+            })
+        })
+        .collect();
 
         Self {
             endpoint_name_editor,
@@ -277,6 +319,7 @@ impl CustomEndpointModal {
             save_button_mouse_state: Default::default(),
             add_model_button_mouse_state: Default::default(),
             remove_endpoint_button,
+            preset_buttons,
             editing_index,
             url_has_error,
             scroll_state: Default::default(),
@@ -337,6 +380,27 @@ impl CustomEndpointModal {
             remove_mouse_state: Default::default(),
             config_key,
         }
+    }
+
+    /// Fills the form for a local backend: name, base URL, no API key (local
+    /// servers don't take one), and the OpenAI chat-completions schema.
+    fn apply_local_preset(&mut self, preset: LocalEndpointPreset, ctx: &mut ViewContext<Self>) {
+        self.endpoint_name_editor.update(ctx, |editor, ctx| {
+            editor.set_buffer_text(preset.display_name(), ctx);
+        });
+        self.endpoint_url_editor.update(ctx, |editor, ctx| {
+            editor.set_buffer_text(preset.base_url(), ctx);
+        });
+        self.api_key_editor.update(ctx, |editor, ctx| {
+            editor.set_buffer_text("", ctx);
+        });
+        let schema = CustomEndpointSchema::OpenaiChatCompletions;
+        self.schema_dropdown.update(ctx, |dropdown, ctx| {
+            dropdown.set_selected_by_name(schema.display_name(), ctx);
+        });
+        self.schema = schema;
+        self.url_has_error = false;
+        ctx.notify();
     }
 
     pub fn prefill(
@@ -770,6 +834,26 @@ impl View for CustomEndpointModal {
             .with_margin_bottom(16.)
             .finish(),
         );
+        // Local-backend presets fill the whole form in one click.
+        column.add_child(
+            Container::new(label("Local backends"))
+                .with_margin_bottom(4.)
+                .finish(),
+        );
+        let mut preset_row = Flex::row();
+        for button in &self.preset_buttons {
+            preset_row.add_child(
+                Container::new(ChildView::new(button).finish())
+                    .with_margin_right(8.)
+                    .finish(),
+            );
+        }
+        column.add_child(
+            Container::new(preset_row.finish())
+                .with_margin_bottom(16.)
+                .finish(),
+        );
+
         // Request/response protocol
         column.add_child(
             Container::new(label("API schema"))
@@ -1082,12 +1166,10 @@ fn validate_url(url: &str) -> Result<(), &'static str> {
     validate_custom_endpoint_url(url)
 }
 
-fn is_endpoint_form_valid(name: &str, url: &str, api_key: &str, has_models: bool) -> bool {
-    !name.trim().is_empty()
-        && !url.trim().is_empty()
-        && !api_key.trim().is_empty()
-        && has_models
-        && validate_url(url).is_ok()
+fn is_endpoint_form_valid(name: &str, url: &str, _api_key: &str, has_models: bool) -> bool {
+    // The API key is optional: local backends (Ollama, LM Studio, MLX) don't
+    // take one.
+    !name.trim().is_empty() && !url.trim().is_empty() && has_models && validate_url(url).is_ok()
 }
 
 impl TypedActionView for CustomEndpointModal {
@@ -1099,6 +1181,9 @@ impl TypedActionView for CustomEndpointModal {
             CustomEndpointModalAction::Save => self.save(ctx),
             CustomEndpointModalAction::AddModel => self.add_model(ctx),
             CustomEndpointModalAction::RemoveModel(index) => self.remove_model(*index, ctx),
+            CustomEndpointModalAction::ApplyLocalPreset(preset) => {
+                self.apply_local_preset(*preset, ctx);
+            }
             CustomEndpointModalAction::RemoveEndpoint => {
                 if let Some(index) = self.editing_index {
                     ctx.emit(CustomEndpointModalEvent::RemoveEndpoint { index });

@@ -1173,3 +1173,26 @@ fn grok_expired_refresh_token_ignores_in_flight_refresh() {
         Some("refresh".to_string())
     );
 }
+
+#[test]
+fn local_endpoints_are_valid_when_self_hosted() {
+    for url in [
+        "http://127.0.0.1:11434/v1",
+        "http://localhost:1234/v1",
+        "http://[::1]:8080/v1",
+        "https://127.0.0.1:11434/v1",
+        "http://192.168.1.20:8080/v1",
+    ] {
+        assert_eq!(validate_endpoint_url(url, true), Ok(()), "{url}");
+    }
+    // Public endpoints keep their rules even self-hosted: HTTPS only.
+    assert!(validate_endpoint_url("http://api.example.com/v1", true).is_err());
+    assert_eq!(
+        validate_endpoint_url("https://api.example.com/v1", true),
+        Ok(())
+    );
+    // Malformed input is still rejected.
+    assert!(validate_endpoint_url("not a url", true).is_err());
+    // The cloud regime is unchanged: local hosts remain off limits.
+    assert!(validate_endpoint_url("http://127.0.0.1:11434/v1", false).is_err());
+}
